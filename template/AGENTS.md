@@ -44,6 +44,14 @@ that everything else follows from>.
 - **No new dependency without a reason that survives the ladder**: what it
   replaces, and why the hand-written version would be worse rather than merely
   longer. Nothing third-party links into the daemon.
+- **No absolute build path in a shipped binary.** `#file` is concise
+  (`SWIFT_UPCOMING_FEATURE_CONCISE_MAGIC_FILE`, prefix maps in `Base.xcconfig`);
+  the packager greps every binary for the repository root and fails on a hit.
+- **User-facing text is a `String.LocalizationValue` spelled out in English**,
+  resolved against `Localizable.xcstrings`. No `NSLocalizedString`, no
+  `SHOUTING_KEY` identifiers; `make check` greps for both. A literal handed to
+  a package's API is marked stale by Xcode: `prune-xcstrings.py` keeps it as
+  `manual`.
 
 ## Layout
 
@@ -61,7 +69,9 @@ that everything else follows from>.
 - `make install` — build and update an installation on an authorized device.
 - `make vphone` — serve one `.deb` to the VM over HTTP.
 
-Give every parallel worker its own `DERIVED_DATA=/tmp/<name>`.
+Give every parallel worker its own `DERIVED_DATA=/private/tmp/<name>` — spelled
+`/private/tmp`, never `/tmp`, or a package manifest that strips its own
+checkout path (LNPopupController) finds no headers.
 
 ## Where things get tested
 

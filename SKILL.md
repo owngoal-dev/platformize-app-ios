@@ -15,6 +15,10 @@ do it. Reference implementations, in order of completeness:
 - `../iGhostVT` — terminal: app + daemon + CLI + widgets, SwiftUI.
 - `../CocoaInspector` — process inspector: app + daemon + CLI, the smallest of
   the three and the easiest to read end to end.
+- Chromatic (Saily, the package manager; joins this list when it is published)
+  — app + daemon + a per-job install helper. The first of the four in Swift 6
+  language mode with main-actor default isolation; the reference for the
+  helper-per-job pattern and the string catalog pruning below.
 
 Read one before starting. This skill is the part that is the same in all three;
 everything else is the app.
@@ -52,6 +56,16 @@ are shipping has no `.app`, use that one instead.
   names, with an argv of exactly itself and an empty environment. There is no
   `exec(path, argv)` case in the wire protocol, because a root daemon that can
   be talked into running a command is a root shell for whoever can talk to it.
+  When the privileged work is a *job* rather than a descriptor — dpkg over a
+  set of packages, an icon-cache rebuild — the wire carries a closed enum of
+  jobs and the daemon starts **one helper for one job**, then hands the app
+  the helper's output pipe. The helper composes every argv itself from the
+  job's fields. It is spawned with `POSIX_SPAWN_SETSID` and the daemon plist
+  sets `AbandonProcessGroup`, so the postinst of the app's own package
+  restarting the daemon does not kill the transaction; the helper ignores
+  `SIGPIPE` and mirrors its transcript to `<root>/var/log/<helper>.log`, so a
+  reader that went away (the app being replaced) loses nothing. The daemon
+  keeps no state across jobs.
 - **No install prefix is written in Swift.** roothide relocates rootful paths
   into a randomized bootstrap; rootless installs under `/var/jb`; a rootful
   layout has no prefix. Derive all three from the daemon's own `proc_pidpath`,
@@ -81,6 +95,16 @@ are shipping has no `.app`, use that one instead.
 - **No third-party dependency links into the daemon.** Whatever the app links,
   the daemon's list is a budget, not a habit: the wire vocabulary, the file
   layer, the log. Everything else is app-side because of the 6 MB cap.
+- **No absolute build path in a shipped binary.** `#file` in Swift 5 mode is
+  the absolute source path, so every `fatalError` and `precondition` ships the
+  build machine's home directory. `SWIFT_UPCOMING_FEATURE_CONCISE_MAGIC_FILE`
+  makes it `Module/File.swift`; `-file-prefix-map` / `-ffile-prefix-map` cover
+  debug info and C's `__FILE__` (both are in `template/Configuration/Base.xcconfig`).
+  A dependency that still spells `#file` in a *default argument* in Swift 5
+  mode leaks the caller's path regardless — SnapKit before 6.0 did. So the
+  packager greps every binary for the repository root, `GITHUB_WORKSPACE` and
+  `RUNNER_TEMP` and fails the build on a hit; that is the check that finds the
+  dependency.
 - **The deb depends on `firmware (>= <floor>)`, `uikittools` and `launchctl`,
   and nothing else.** `postinst` boots the daemon and runs `uicache`; `prerm`
   boots it out and uncaches. `@PREFIX@` in the launchd plist, `postinst` and
@@ -220,9 +244,19 @@ The Makefile targets, in the order you will need them:
 | `make install` | build for `FLAVOR` and update an existing installation over `iproxy`. First installation still goes through the device's package installer. |
 | `make vphone` | incremental Debug build, then serve one `.deb` over HTTP to the VM. No SSH, no VM restart. |
 
-Give every parallel worker its own `DERIVED_DATA=/tmp/<name>`: the default path
-is shared, concurrent builds cross-contaminate, and you get false greens and
-false reds.
+Give every parallel worker its own `DERIVED_DATA=/private/tmp/<name>` (or
+`~/Library/Caches/<name>`): the default path is shared, concurrent builds
+cross-contaminate, and you get false greens and false reds. Spell it
+`/private/tmp`, never `/tmp`: Xcode passes the path as written while
+FileManager resolves it through the symlink, and a package manifest that strips
+its own checkout path to compute header search paths (LNPopupController does)
+then strips nothing and its private headers go unfound. The live Makefiles
+already default to `/private/tmp/<app>-deriveddata`.
+
+`run-xcodebuild.sh` must print the failed build commands and the raw tail of
+the log when xcodebuild fails, not only the `error:` lines: a compiler killed
+by the system, or a crashed `swift-frontend`, reports no `error:` line at all,
+and the raw log is gone once the script exits.
 
 ## Where things get tested
 
@@ -258,6 +292,17 @@ Two blind spots to plan around:
   alone reports a clean catalogue while a whole module ships English. Scrape
   package targets separately, and keep their strings plain — no interpolated
   keys — so a scrape can see them all.
+- The extractor also only sees a `String.LocalizationValue` literal handed to
+  a function of the **same module**. One handed straight to a package's API
+  (`AlertViewController(title: "No Repositories to Share")`) resolves against
+  the catalogue at run time and is marked *stale* at build time — and Xcode,
+  while the project sits open, deletes stale entries together with their
+  translations on its own schedule. `extractionState: manual` is the state
+  Xcode never touches. `scripts/prune-xcstrings.py <catalog> <source roots…>`
+  makes that decision from the sources: a stale key still quoted in a Swift
+  file becomes `manual`, the rest are removed. Run it instead of hand-editing,
+  and commit catalogue changes with Xcode closed, or re-read the diff: an open
+  project rewrites and reorders the file during every build.
 
 A translation keeps every format specifier with the same type and count, and
 uses positional forms (`%1$@`, `%2$lld`) wherever the language reorders them:
@@ -277,6 +322,57 @@ language's users lose a file.
 5. Add the repo to `owngoal-packages`' `manifest.json` (`repository` +
    `architectures`) *after* the release exists — the APT build fails on a
    manifest entry with no release — and watch its run go green.
+
+## Swift 6 and the main actor
+
+Chromatic is the first of the apps on `SWIFT_VERSION = 6.0` for every target
+with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` on the app; the others are
+still Swift 5 mode. What held up under it, and what did not:
+
+- **State lives on the main actor; work that takes time runs on a copy.** The
+  engines (repositories, packages, tasks, downloads) hold their state on the
+  main actor, so a read or a commit is a dictionary operation and nothing is
+  locked. Parsing dpkg's status, compiling repository indexes, resolving
+  dependencies, hashing downloads and writing to disk take a value snapshot
+  into a `nonisolated static` or `@concurrent` function and commit the result
+  back. Every engine notification is posted on the main actor, so a UI
+  observer is a plain `@objc func`. The migration removed every `NSLock` and
+  serial queue; none of them was replaced by an actor. Do not add one; add a
+  snapshot.
+- A singleton is `nonisolated static let shared` with a `private nonisolated
+  init()`; a property wrapper cannot be applied to a stored property of a
+  nonisolated type, so it becomes `let store = Wrapper(...)` plus a computed
+  property. A nested `Hashable` type used from the background is a
+  `nonisolated struct`.
+- **Xcode 26.6's `swift-frontend` crashes** (EarlyPerfInliner, in the
+  optimizer of a Release build) on the *implicit* deinit of a generic subclass
+  of an Objective-C generic class — `final class X<S, I>:
+  UITableViewDiffableDataSource<S, I>` — under main-actor default isolation.
+  Debug builds and the simulator are fine, so it shows up on CI. Spell the
+  deinit out as `nonisolated deinit {}` and it compiles. Observed on the
+  macos-26 runner with Xcode 26.6.
+- The package targets stay Swift 5 mode (tools 5.9, iOS 15) and are annotated
+  `@MainActor` where the app needs them to be; a package in Swift 6 mode would
+  turn every UIKit-adjacent call in it into a diagnostic at once.
+
+## Gotchas observed across the apps
+
+- **A Swift wrapper module and a C framework that differ only by case.** The
+  libarchive xcframework's module is `libarchive`; the upstream Swift package
+  wraps it in a module named `LibArchive`. Xcode's module cache on a
+  case-insensitive volume cannot tell them apart and the build fails with
+  `cannot load module 'LibArchive' as 'libarchive'` — on CI, after a clean
+  local build, because the local cache happened to be warm. Two fixes, both
+  shipping: Fila aliases the wrapper (`moduleAliases: ["LibArchive":
+  "FilaLibArchive"]`); Chromatic drops the wrapper and links the artifact as
+  its own `.binaryTarget(name: "libarchive", url:, checksum:)`, adding `z`,
+  `bz2`, `iconv` and `xml2` to `linkerSettings` itself.
+- **iPadOS 18 reserves the top of the screen for a hidden tab bar.** A
+  `UITabBarController` whose tab bar is hidden — because the app draws its own
+  — still lays out for the iPad top tab bar and leaves a blank band under the
+  status bar. A root that does not want a tab bar is a plain
+  `UIViewController` with child containment, not a `UITabBarController` with
+  the bar hidden. Seen on an iPad on iPadOS 18, absent on iOS 15 and 16.
 
 ## When a merge goes wrong
 
@@ -333,7 +429,9 @@ on one device can never authenticate each other's peers.
 `scripts/check-symbol-availability.py <floor> <source roots…>` are the two
 release gates from the section above; wire both into `make check` (the symbol
 one) and the release path (the floor one, over the built `.app`, the daemon and
-every helper).
+every helper). `scripts/prune-xcstrings.py <catalog> <source roots…>` is the
+catalogue tidy from the localization section; run it by hand after Xcode has
+marked entries stale, never from `make check`, because it writes.
 
 ## Output
 
