@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	The app's entitlements for the jailbreak wrappers (the deb and the .tipa).
+	The ordinary sideload .ipa gets a separate file carrying only the App Group:
+	verify-ipa.sh checks jailbreak entitlements for *absence* there and for
+	presence here, because the two archives fail in opposite directions.
+
+	`@APP_CLIENT_ENTITLEMENT@` is the private key the daemon's authenticator
+	looks for on a peer. It is the app's half of the trust boundary: name it
+	after the app, never reuse another app's, and never grant it to anything you
+	would not hand a root descriptor to.
+
+	Add `com.apple.security.iokit-user-client-class` only if the app draws with
+	Metal itself (a terminal, an emulator, a renderer). A bootstrap withholds
+	the GPU from an ad-hoc signed binary until this entitlement names the
+	classes, and the failure is silent: the surface never reports a viewport and
+	the view is a blank rectangle while everything behind it works.
+-->
+<plist version="1.0">
+<dict>
+	<key>application-identifier</key>
+	<string>@BUNDLE_ID@</string>
+	<key>com.apple.security.application-groups</key>
+	<array><string>$(APP_GROUP_IDENTIFIER)</string></array>
+	<key>@APP_CLIENT_ENTITLEMENT@</key>
+	<true/>
+	<key>com.apple.private.security.no-sandbox</key>
+	<true/>
+	<key>platform-application</key>
+	<true/>
+</dict>
+</plist>

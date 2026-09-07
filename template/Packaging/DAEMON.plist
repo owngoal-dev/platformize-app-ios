@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	Rename this file to <daemon bundle id>.plist. `@PREFIX@` is substituted at
+	package time: empty for roothide, /var/jb for rootless. The daemon is
+	on-demand — launchd starts it when the app looks the Mach service up, and
+	it exits when the last client is gone, so an idle device carries no process
+	for it and it stays clear of launchd's 6 MB jetsam budget.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>@DAEMON_ID@</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>@PREFIX@/usr/libexec/@DAEMON@</string>
+	</array>
+	<key>UserName</key>
+	<string>root</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<!-- 0022: files the daemon creates are not group- or world-writable. -->
+	<key>Umask</key>
+	<integer>18</integer>
+	<key>MachServices</key>
+	<dict>
+		<key>@SERVICE_NAME@</key>
+		<true/>
+	</dict>
+	<!-- Nothing may inject into the process that hands out root descriptors. -->
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>DISABLE_TWEAKS</key>
+		<string>1</string>
+	</dict>
+</dict>
+</plist>

@@ -1,0 +1,15 @@
+Package: @PACKAGE_ID@
+Name: @APP_NAME@
+Version: @VERSION@
+Architecture: @ARCHITECTURE@
+Description: @ONE_LINE_DESCRIPTION@ for @FLAVOR@ jailbreaks
+ A second paragraph, indented by one space, that says what the app does in the
+ user's words rather than the developer's: what they can now see, change or
+ open that they could not before, and what the app refuses to break.
+Icon: https://owngoal-dev.github.io/@REPO@/icon.png
+Maintainer: OwnGoal Studio <not-gonna-reply@owngoal.dev>
+Author: OwnGoal Studio <not-gonna-reply@owngoal.dev>
+Section: Utilities
+Priority: optional
+Depends: firmware (>= @MINIMUM_IOS_VERSION@), uikittools, launchctl
+Installed-Size: @INSTALLED_SIZE@
