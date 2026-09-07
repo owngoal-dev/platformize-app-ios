@@ -243,6 +243,7 @@ The Makefile targets, in the order you will need them:
 | `make tipa` / `make ipa` | the app alone: the `.tipa` keeps the jailbreak entitlements, the `.ipa` carries only the App Group. |
 | `make install` | build for `FLAVOR` and update an existing installation over `iproxy`. First installation still goes through the device's package installer. |
 | `make vphone` | incremental Debug build, then serve one `.deb` over HTTP to the VM. No SSH, no VM restart. |
+| `make bump-build` | `CURRENT_PROJECT_VERSION += 1` in `Configuration/Version.xcconfig`, through `Scripts/apply-version.sh`. Not called by hand: it is a prerequisite of every target that runs xcodebuild, so a build a device is running can always be named by its number. |
 
 Give every parallel worker its own `DERIVED_DATA=/private/tmp/<name>` (or
 `~/Library/Caches/<name>`): the default path is shared, concurrent builds
