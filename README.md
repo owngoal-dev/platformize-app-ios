@@ -26,7 +26,7 @@ use that one.
 | `scripts/audit-ios-floor.sh` | proves a built product can actually launch on the OS it claims: required libraries, build versions, embedded frameworks, weak symbols |
 | `scripts/check-symbol-availability.py` | fails when a source tree names an SF Symbol newer than the deployment target — the failure that never crashes and never warns |
 | `scripts/prune-xcstrings.py` | tidies a string catalog after Xcode marks entries stale: a key still quoted in the sources becomes `manual` instead of losing its translations, the rest are removed |
-| `template/` | the packaging inputs, the two xcconfigs, the XPC constant shim, and an `AGENTS.md` skeleton |
+| `template/` | the packaging inputs, the two xcconfigs, the XPC constant shim, the app's update watch, and an `AGENTS.md` skeleton |
 | `AGENTS.md` (`CLAUDE.md` links to it) | notes for agents working on this repository |
 
 The build scripts are deliberately **not** in `template/`: they move with the

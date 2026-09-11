@@ -71,6 +71,21 @@ are shipping has no `.app`, use that one instead.
   layout has no prefix. Derive all three from the daemon's own `proc_pidpath`,
   and let everything that needs the prefix ask the daemon. An unrecognized
   daemon path refuses startup.
+- **An app replaced while it runs says so.** dpkg renames each new file over
+  the old one, so a running app — suspended in the background, or in front
+  while the device updates it over SSH — goes on executing the old code against
+  the restarted daemon. `template/App/ExecutableWatch.swift` holds the launched
+  executable with `O_EVTONLY` under a kqueue vnode source (`.delete`, `.link`)
+  and fires once its link count reaches zero; the app then asks, in its own
+  alert, *Later* or *Quit*. It asks rather than exits because a screen may hold
+  unsaved work; a suspended app hears the event on resume. Copy the file
+  unchanged into the app target, start it in `didFinishLaunching` (or the `App`
+  initialiser) and keep the copies identical. Daemons are not watched: the
+  postinst's `bootout` / `bootstrap` restarts one once every file is in place,
+  and a daemon that stopped the moment its binary was replaced would stop
+  mid-unpack — killing a dpkg the app ran through it. Observed on a rootless
+  vphone for all three apps: a `dpkg -i` under the running app, and a
+  same-directory `cp` plus `mv` over the executable.
 - **Every path is canonicalised before a decision is made about it.** `/var` and
   `/etc` are symlinks into `/private`; a guard that compares an unresolved
   string is a guard with a bypass. `realpath(3)` first, then compare
@@ -397,7 +412,8 @@ from the resolution:
 
 `template/` holds only the parts that are the same in every app repo and that
 you cannot get by reading a sibling: the packaging inputs, the two xcconfigs,
-the XPC constant shim and an `AGENTS.md` skeleton. **The build scripts are not
+the XPC constant shim, the app's update watch (`App/ExecutableWatch.swift`)
+and an `AGENTS.md` skeleton. **The build scripts are not
 here on purpose** — `package-deb.sh`, `verify-deb.sh`, `package-ipa.sh`,
 `verify-ipa.sh`, `sign-frameworks.sh`, `install-device.sh`, `vphone.sh` and the
 `Makefile` move with the live repos, and a fork of them here would be stale
@@ -409,6 +425,7 @@ cp -R ../Fila/Scripts ../Fila/Makefile .          # or ../iGhostVT, ../CocoaInsp
 mv Packaging/APP.entitlements    "Packaging/<App>.entitlements"
 mv Packaging/DAEMON.entitlements "Packaging/<App>d.entitlements"
 mv Packaging/DAEMON.plist        "Packaging/<daemon bundle id>.plist"
+mkdir -p "<App>/Application" && mv App/ExecutableWatch.swift "<App>/Application/" && rmdir App
 ln -s AGENTS.md CLAUDE.md
 grep -rn '@[A-Z_]*@' .                            # every hit is a decision
 grep -rni 'fila\|ighostvt\|inspector' Makefile Scripts Packaging   # every hit is a rename
