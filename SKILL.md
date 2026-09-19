@@ -111,11 +111,21 @@ self-updating installer into the daemon.
   `otool -L` fails on `libvroot`. Do not `symredirect` one side of a
   Foundation/XPC boundary. libroot's path spelling is not bootstrap identity
   (`/var/jb` may be what it returns on roothide).
-- **An app replaced while it runs says so** — unless this package *is* the
+- **An app replaced or removed while it runs says so** — unless this package *is* the
   installer of itself. dpkg renames each new file over the old one.
   `template/App/ExecutableWatch.swift` holds the launched executable with
-  `O_EVTONLY` and fires when the link count reaches zero; the app asks *Later*
-  or *Quit*. Copy the file unchanged; start it in `didFinishLaunching`.
+  `O_EVTONLY` and fires once when the link count reaches zero, on update or
+  uninstall. It checks after dispatch-source registration too, so an unlink
+  between opening the fd and arming the watch is not lost. A `.dpkg-tmp`
+  hard link delays notification until cleanup; rollback keeps the old inode
+  linked and must not notify. The app asks *Later* or *Quit*, using wording
+  that covers both update and removal (the watch does not distinguish them).
+  Copy the file unchanged; start it once, early in `didFinishLaunching`.
+  It watches the inode opened at startup: changes before that open, in-place
+  writes, and moves that retain a hard link are outside this guard.
+  `tests/test_executable_watch.py` compiles it into a real macOS process and
+  exercises replacement, unlink, dpkg backup cleanup, rollback, and unlink
+  before the registration callback. Device suspension still needs an iOS run.
   **Do not watch the daemon**: postinst restarts it once every file is in
   place, and a daemon that exited mid-unpack would kill its own helper. A
   self-updating installer has no watch: the helper finishes the job and the

@@ -40,6 +40,12 @@ helper-per-job: the daemon starts one helper for one closed job.>
   `libvroot` in the app, daemon or helper.
 - **Every path is canonicalised before a decision is made about it.**
   `realpath(3)` first, then compare components; reject an embedded NUL first.
+- **Start `ExecutableWatch` once, early in `didFinishLaunching`.** When the
+  opened executable loses its last hard link, offer Later or Quit with wording
+  covering both update and removal. Keep the registration-time check and the
+  cancellation guard; the callback runs once on the main queue. Do not watch
+  daemons: postinst restarts them after unpacking finishes. Omit this watch
+  for a self-updating installer whose helper owns completion and exit.
 - **A cold launch starts with no saved scenes.** `main.swift` deletes this
   bundle's `Library/Saved Application State/<id>.savedState` before
   `UIApplicationMain`. UIKit reads that archive before any scene delegate
