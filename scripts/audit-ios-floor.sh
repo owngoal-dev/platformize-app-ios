@@ -102,12 +102,18 @@ check_weak_symbols() {
 
 for path in "$@"; do
     [[ -e "$path" ]] || { echo "error: no such path: $path" >&2; exit 66; }
+    binary_count=0
     while IFS= read -r binary; do
         [[ -n "$binary" ]] || continue
+        binary_count=$((binary_count + 1))
         check_libraries "$binary"
         check_minos "$binary"
         check_weak_symbols "$binary"
     done < <(binaries "$path")
+    if (( binary_count == 0 )); then
+        echo "error: no Mach-O binaries found in: $path" >&2
+        fail=1
+    fi
 done
 
 # 4. SF Symbols. Not a link error and not a crash: `UIImage(systemName:)`
