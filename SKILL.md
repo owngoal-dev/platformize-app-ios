@@ -26,7 +26,7 @@ Reference implementations — pick by *daemon shape*, then copy that sibling's
 
 Read one before starting. This skill is the part that is the same in all four;
 everything else is the app. Do not `cp ../Fila/Scripts` before the shape is
-chosen — Fila's packager assumes `uicache`, an archive helper, and no
+chosen — Fila's packager assumes an archive helper and no
 `KeepAlive`.
 
 The sibling skill `platformize-bin-ios` ports *command-line tools*. If what you
@@ -168,10 +168,11 @@ self-updating installer into the daemon.
   dependency that spells `#file` in a *default argument* in Swift 5 mode leaks
   the caller's path — SnapKit before 6.0 did. The packager greps every binary
   for the repository root, `GITHUB_WORKSPACE` and `RUNNER_TEMP`.
-- **The deb Depends on `firmware (>= <floor>)` and `launchctl`.** Add
-  `uikittools` only when maintainer scripts call `uicache`. Irisin registers
-  the app through the helper and Depends on `launchctl` alone. `@PREFIX@` in
-  the launchd plist, `postinst` and `prerm` is substituted at package time.
+- **The deb Depends on `firmware (>= <floor>)`, `uikittools` and `launchctl`.**
+  Keep `uikittools`: its triggers register and unregister the app. Do not call
+  `uicache` in installation or removal hooks, including copied scripts.
+  `@PREFIX@` in the launchd plist, `postinst` and `prerm` is substituted at
+  package time.
   `postinst` boots out **system, user/501 and gui/501** before bootstrap:
   roothide's launchctl can land a system daemon in the per-user domain.
 - **Review for sensitive information before every upload or publish, by
@@ -389,11 +390,15 @@ Keep blunt warnings blunt in every language.
 3. Commit, push, tag `vX.Y.Z`. **Every published package comes out of the
    sibling's Release workflow** (copy `.github/workflows/release.yml` from
    the same repo you copied `Scripts/` from, then delete product-only jobs).
+   CocoaInspector names that file `ci.yml`; normalize the copied workflow name
+   to `Release` so the template Pages workflow observes its completion.
    The app template ships Pages only. Local `make deb` exists to prove the
    build and to `make install` on a device.
 4. Enable Pages as **GitHub Actions** (not the legacy `/docs` folder). The
-   workflow deploys `Documents/Site/` (`index.html` + `icon.png` at Site
-   root). Point `manifest.json`'s icon at
+   workflow deploys `Documents/Site/` (`index.html`, `icon.png`, and
+   `depiction.json` at Site root). Prepare the native depiction as described
+   below. Before the first stable release, the updater leaves the Details-only
+   page intact. Point `manifest.json`'s icon at
    `https://owngoal-dev.github.io/<repo>/icon.png`. The APT verify is
    CDN-delayed (`max-age` 600 s).
 5. Add the repo to `owngoal-packages`' `manifest.json` (`repository` +
@@ -513,7 +518,12 @@ cp -R <this skill>/template/ <repo>/ && cd <repo>
 # smallest on-demand: cp -R ../CocoaInspector/Scripts ../CocoaInspector/Makefile .
 # session host:       cp -R ../iGhostVT/Scripts ../iGhostVT/Makefile .
 # helper-per-job:     cp -R <path-to-Lakr233/Irisin>/Scripts <path-to-Lakr233/Irisin>/Makefile .
-cp <sibling>/.github/workflows/release.yml .github/workflows/   # then delete product-only jobs
+# Copy the release workflow that matches the chosen build scripts:
+# Fila / iGhostVT / Irisin: .github/workflows/release.yml
+# CocoaInspector:         .github/workflows/ci.yml
+cp <sibling>/.github/workflows/<release.yml-or-ci.yml> .github/workflows/release.yml
+# Set its workflow name to Release, then remove only product-only jobs.
+# Keep macos-26, Xcode selection, signing, verification, and all required assets.
 mv Packaging/APP.entitlements    "Packaging/<App>.entitlements"
 mv Packaging/DAEMON.entitlements "Packaging/<App>d.entitlements"
 mv Packaging/DAEMON.plist        "Packaging/<daemon bundle id>.plist"
@@ -534,7 +544,8 @@ Placeholders: `@APP_NAME@`, `@REPO@`, `@BUNDLE_ID@` (`wiki.qaq.<app>`),
 `@DAEMON@` (`<app>d`), `@DAEMON_ID@` (`wiki.qaq.<app>d`), `@SERVICE_NAME@`
 (`wiki.qaq.<app>.service`), `@APP_CLIENT_ENTITLEMENT@`
 (`wiki.qaq.<app>.client`), `@PACKAGE_ID@`, `@MINIMUM_IOS_VERSION@`,
-`@ONE_LINE_DESCRIPTION@`. `@PREFIX@`, `@VERSION@`, `@ARCHITECTURE@`, `@FLAVOR@`
+`@ONE_LINE_DESCRIPTION@`, `@PACKAGE_DESCRIPTION@`, `@BANNER_URL@`, and
+`@DEPICTION_DESCRIPTION@`. `@PREFIX@`, `@VERSION@`, `@ARCHITECTURE@`, `@FLAVOR@`
 and `@INSTALLED_SIZE@` are substituted by the packager at package time — leave
 those alone.
 
@@ -545,10 +556,11 @@ those markers, not the prose at the top of the file. Enable
 `RunAtLoad` for a session host (and set `ProcessType` to Interactive).
 `postinst` already boots out three launchd domains. Fila and Inspector
 packagers copy only `postinst` and `prerm`: add `postrm` to that loop, or
-delete `Packaging/DEBIAN/postrm`. Default `Depends` still lists `uikittools`
-because default `postinst` calls `uicache` — drop both together. Default
-`APP.entitlements` has an App Group; delete it unless an extension shares a
-container, and only if the packager substitutes `$(APP_GROUP_IDENTIFIER)`.
+delete `Packaging/DEBIAN/postrm`. Keep `uikittools` in `Depends` for automatic
+app registration and removal through its triggers. The lifecycle hooks manage
+the daemon only; remove any explicit `uicache` calls from copied scripts too.
+Default `APP.entitlements` has an App Group; delete it unless an extension
+shares a container, and only if the packager substitutes `$(APP_GROUP_IDENTIFIER)`.
 
 `scripts/audit-ios-floor.sh <floor> <paths…>` and
 `scripts/check-symbol-availability.py <floor> <source roots…>` are the two
@@ -557,7 +569,44 @@ one) and the release path (the floor one, over the built `.app`, the daemon and
 every helper). `scripts/prune-xcstrings.py` is the Irisin/Inspector catalogue
 tidy; Fila's checker is in Fila's `Scripts/` — copy the one that matches.
 
-Drop `icon.png` into `Documents/Site/` before the first Pages deploy.
+### Native Depiction
+
+Drop `icon.png` into `Documents/Site/` before the first Pages deploy. Keep the
+control file's `Depiction` and `SileoDepiction` URLs pointing at the site root
+and `/depiction.json`, respectively.
+
+Set `@BANNER_URL@` to the full HTTPS URL of the largest banner image referenced
+by the app's README. Compare the actual image dimensions; do not choose the
+app icon or a thumbnail. A tracked image can use its GitHub raw URL on `main`.
+Write `@PACKAGE_DESCRIPTION@` as one short paragraph and
+`@DEPICTION_DESCRIPTION@` as Markdown describing supported features and
+compatibility. Retain installation and device caveats from the README; never
+invent generic features. Replace JSON string values through a JSON encoder so
+quotes and multiline Markdown remain valid. Do not substitute packager-only
+`@VERSION@` into the static depiction.
+
+The template has only a Details tab. Pages runs the shared
+`owngoal-packages/scripts/update-depiction-changelogs.py` at a pinned commit with
+`--repository OWNER/REPO --depiction Documents/Site/depiction.json`. It adds the
+Changelog tab from published GitHub release titles, dates, and Markdown notes.
+Do not copy that implementation into the new app. Pages fetches releases on
+site changes, manual runs, release publication or edits, and successful
+`Release` workflow completion. Release events dispatch a Pages run on `main`
+so tag-triggered runs do not conflict with Pages environment branch restrictions.
+The completion trigger also handles releases created with `GITHUB_TOKEN`,
+whose release events do not start another workflow.
+
+The copied release workflow must publish the release only after its build and
+package checks pass. Retain its macOS runner, signing steps, and product-specific
+verification. If its name differs, change it to `Release` or update the Pages
+`workflow_run.workflows` entry to the same name. Enable Pages with GitHub Actions,
+publish the first stable release, and verify the deployed JSON and banner URLs.
+
+Validate a scaffold with `python3 -m unittest discover -s tests -v` in this
+skill repository. In the generated app, run `actionlint` on both workflows,
+parse `Documents/Site/depiction.json`, run `sh -n` on every maintainer hook,
+and check that no unresolved scaffold placeholders remain. Packager placeholders
+in packaging inputs are intentional until the packages are built.
 
 ## Output
 

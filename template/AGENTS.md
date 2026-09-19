@@ -87,6 +87,19 @@ Give every parallel worker its own `DERIVED_DATA=/private/tmp/<name>` — spelle
 `/private/tmp`, never `/tmp`, or a package manifest that strips its own
 checkout path finds no headers.
 
+## Package Pages
+
+`Documents/Site/depiction.json` is the native Sileo page. Keep its Details
+copy accurate and use the largest banner referenced by the README as
+`headerImage`. The Pages workflow refreshes its Changelog from published GitHub
+releases using the shared updater pinned in that workflow; never maintain a
+second changelog implementation or edit generated release notes by hand.
+The copied publishing workflow must be named `Release` so Pages refreshes after
+it succeeds. Deploy from `main`, including when an older release is edited.
+
+Keep the `uikittools` dependency: its triggers register and unregister the app.
+Maintainer hooks manage the daemon only; never add explicit `uicache` calls.
+
 ## Where things get tested
 
 The Mac harness first, the simulator for the visuals, a vphone or a jailbroken

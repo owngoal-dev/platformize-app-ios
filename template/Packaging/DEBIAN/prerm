@@ -18,10 +18,6 @@ if [ "${1:-}" = remove ] || [ "${1:-}" = deconfigure ]; then
         "$launchctl" bootout user/501/@DAEMON_ID@ 2>/dev/null || true
         "$launchctl" bootout gui/501/@DAEMON_ID@ 2>/dev/null || true
     fi
-    # Drop this block when a helper unregisters the app itself.
-    if uicache="$(find_tool uicache)"; then
-        "$uicache" -u @BUNDLE_ID@ || true
-    fi
 fi
 
 exit 0

@@ -7,12 +7,19 @@ For command-line tools, see [platformize-bin-ios](https://github.com/owngoal-dev
 ## Included
 
 - `SKILL.md`: app and daemon setup, packaging, and release guidance.
-- `template/`: configuration and packaging files.
+- `template/`: configuration, packaging files, a native Sileo depiction, and
+  a Pages workflow that loads release notes from GitHub.
 - `scripts/`: deployment compatibility and SF Symbol checks, plus localization cleanup.
 
 ## Get Started
 
 Read [SKILL.md](SKILL.md), then adapt the templates to your app.
+
+Use the largest banner from your README for the depiction and write its Details
+copy for your app. Package installation and removal use uikittools triggers for
+app registration. Follow the release-workflow setup in the skill.
+
+Run `python3 -m unittest discover -s tests -v` to validate the rendered templates.
 
 Run `scripts/audit-ios-floor.sh` to check deployment compatibility before release.
 

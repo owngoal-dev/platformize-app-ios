@@ -3,10 +3,10 @@ Name: @APP_NAME@
 Version: @VERSION@
 Architecture: @ARCHITECTURE@
 Description: @ONE_LINE_DESCRIPTION@ for @FLAVOR@ jailbreaks
- A second paragraph, indented by one space, that says what the app does in the
- user's words rather than the developer's: what they can now see, change or
- open that they could not before, and what the app refuses to break.
+ @PACKAGE_DESCRIPTION@
 Icon: https://owngoal-dev.github.io/@REPO@/icon.png
+Depiction: https://owngoal-dev.github.io/@REPO@/
+SileoDepiction: https://owngoal-dev.github.io/@REPO@/depiction.json
 Maintainer: OwnGoal Studio <not-gonna-reply@owngoal.dev>
 Author: OwnGoal Studio <not-gonna-reply@owngoal.dev>
 Section: Utilities
