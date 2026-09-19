@@ -1,57 +1,20 @@
 # platformize-app-ios
 
-A [Claude Code](https://claude.com/claude-code) skill for shipping a native iOS
-**app** — with its own root LaunchDaemon — to **jailbroken devices**: one Xcode
-project, packaged for both **roothide** and **rootless** bootstraps, plus a
-TrollStore `.tipa` and a sideload `.ipa`, released from GitHub Actions and
-served by the
-[OwnGoal Studio APT repository](https://github.com/owngoal-dev/owngoal-packages).
+A good starting point for packaging native iOS apps.
 
-It is the distilled procedure behind
-[Fila](https://github.com/owngoal-dev/Fila) (file manager),
-[iGhostVT](https://github.com/owngoal-dev/iGhostVT) (terminal),
-CocoaInspector (process inspector) and
-[Irisin](https://github.com/Lakr233/Irisin) (package manager): how an
-unprivileged app and a root daemon divide the work, which of three daemon
-shapes to pick, what the packaging contract is, and what silently raises the
-deployment floor out from under a build that looks clean.
+For command-line tools, see [platformize-bin-ios](https://github.com/owngoal-dev/platformize-bin-ios).
 
-Its sibling [platformize-bin-ios](https://github.com/owngoal-dev/platformize-bin-ios)
-does the same for command-line tools. If what you are shipping has no `.app`,
-use that one.
+## Included
 
-## What you get
+- `SKILL.md`: app and daemon setup, packaging, and release guidance.
+- `template/`: configuration and packaging files.
+- `scripts/`: deployment compatibility and SF Symbol checks, plus localization cleanup.
 
-| path | what it is |
-| --- | --- |
-| `SKILL.md` | the skill: daemon-shape picker, the app/daemon contract, the deployment-floor audit, layout, build and test surfaces, localization verification, Swift 6 on the main actor, publishing |
-| `scripts/audit-ios-floor.sh` | proves a built product can actually launch on the OS it claims: required libraries, build versions, embedded frameworks, weak symbols |
-| `scripts/check-symbol-availability.py` | fails when a source tree names an SF Symbol newer than the deployment target — the failure that never crashes and never warns |
-| `scripts/prune-xcstrings.py` | tidies a string catalog after Xcode marks entries stale (Irisin / Inspector path: a key still quoted in the sources becomes `manual`). Fila uses a different checker — see `SKILL.md` |
-| `template/` | the packaging inputs, the xcconfigs, the XPC constant shim, the app's update watch, scene-restoration reset, Pages workflow + Site stub, and an `AGENTS.md` skeleton |
-| `AGENTS.md` (`CLAUDE.md` links to it) | notes for agents working on this repository |
+## Get Started
 
-The build scripts are deliberately **not** in `template/`: they move with the
-live repos, so the skill tells you to copy them from the sibling whose daemon
-shape you picked rather than keeping a fork that goes stale.
+Read [SKILL.md](SKILL.md), then adapt the templates to your app.
 
-## Install
-
-```sh
-git clone https://github.com/owngoal-dev/platformize-app-ios ~/.claude/skills/platformize-app-ios
-```
-
-Then ask for it by name, or just describe the job: "package this app as a deb
-for roothide and rootless", "give it a root daemon over XPC", "why does it not
-launch on iOS 15".
-
-## The one thing to take away
-
-A clean build against this year's SDK is not evidence that the app runs on the
-OS its deployment target claims. The linker believes the SDK's availability
-metadata, and where that metadata is wrong the app dies in dyld before `main` on
-the old device — with no warning anywhere in the build, and no way to find out
-except from a user. `scripts/audit-ios-floor.sh` is that missing warning.
+Run `scripts/audit-ios-floor.sh` to check deployment compatibility before release.
 
 ## License
 
