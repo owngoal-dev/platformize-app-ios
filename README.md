@@ -9,9 +9,11 @@ served by the
 
 It is the distilled procedure behind
 [Fila](https://github.com/owngoal-dev/Fila) (file manager),
-[iGhostVT](https://github.com/owngoal-dev/iGhostVT) (terminal) and
-CocoaInspector (process inspector): how an unprivileged app and a root daemon
-divide the work, what the packaging contract is, and what silently raises the
+[iGhostVT](https://github.com/owngoal-dev/iGhostVT) (terminal),
+CocoaInspector (process inspector) and
+[Irisin](https://github.com/Lakr233/Irisin) (package manager): how an
+unprivileged app and a root daemon divide the work, which of three daemon
+shapes to pick, what the packaging contract is, and what silently raises the
 deployment floor out from under a build that looks clean.
 
 Its sibling [platformize-bin-ios](https://github.com/owngoal-dev/platformize-bin-ios)
@@ -22,16 +24,16 @@ use that one.
 
 | path | what it is |
 | --- | --- |
-| `SKILL.md` | the skill: the app/daemon contract, the deployment-floor audit, layout, build and test surfaces, localization verification, Swift 6 on the main actor, publishing |
+| `SKILL.md` | the skill: daemon-shape picker, the app/daemon contract, the deployment-floor audit, layout, build and test surfaces, localization verification, Swift 6 on the main actor, publishing |
 | `scripts/audit-ios-floor.sh` | proves a built product can actually launch on the OS it claims: required libraries, build versions, embedded frameworks, weak symbols |
 | `scripts/check-symbol-availability.py` | fails when a source tree names an SF Symbol newer than the deployment target — the failure that never crashes and never warns |
-| `scripts/prune-xcstrings.py` | tidies a string catalog after Xcode marks entries stale: a key still quoted in the sources becomes `manual` instead of losing its translations, the rest are removed |
-| `template/` | the packaging inputs, the two xcconfigs, the XPC constant shim, the app's update watch, and an `AGENTS.md` skeleton |
+| `scripts/prune-xcstrings.py` | tidies a string catalog after Xcode marks entries stale (Irisin / Inspector path: a key still quoted in the sources becomes `manual`). Fila uses a different checker — see `SKILL.md` |
+| `template/` | the packaging inputs, the xcconfigs, the XPC constant shim, the app's update watch, scene-restoration reset, Pages workflow + Site stub, and an `AGENTS.md` skeleton |
 | `AGENTS.md` (`CLAUDE.md` links to it) | notes for agents working on this repository |
 
 The build scripts are deliberately **not** in `template/`: they move with the
-live repos, so the skill tells you to copy them from the closest sibling rather
-than keeping a fork that goes stale.
+live repos, so the skill tells you to copy them from the sibling whose daemon
+shape you picked rather than keeping a fork that goes stale.
 
 ## Install
 

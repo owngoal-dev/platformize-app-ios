@@ -2,20 +2,39 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
 	The app's entitlements for the jailbreak wrappers (the deb and the .tipa).
-	The ordinary sideload .ipa gets a separate file carrying only the App Group:
-	verify-ipa.sh checks jailbreak entitlements for *absence* there and for
-	presence here, because the two archives fail in opposite directions.
+	The ordinary sideload .ipa gets a separate file carrying only the App Group
+	(if any): verify-ipa.sh checks jailbreak entitlements for *absence* there
+	and for presence here, because the two archives fail in opposite directions.
 
 	`@APP_CLIENT_ENTITLEMENT@` is the private key the daemon's authenticator
-	looks for on a peer. It is the app's half of the trust boundary: name it
-	after the app, never reuse another app's, and never grant it to anything you
-	would not hand a root descriptor to.
+	looks for on a peer. Name it after the app, never reuse another app's, and
+	never grant it to anything you would not hand a root descriptor to.
+
+	Mach-lookup of `@SERVICE_NAME@` is not optional: without it the app cannot
+	find the daemon.
+
+	The App Group is required on the app and every embedded extension that
+	shares a container. Delete the key for a Live Activity–only appex, and
+	only keep `$(APP_GROUP_IDENTIFIER)` if the packager substitutes it.
+
+	`platform-application` is the default. It attests "signed as platform",
+	not "this client". If it is unused on the app, drop it from the app *and*
+	from the authenticator together.
 
 	Add `com.apple.security.iokit-user-client-class` only if the app draws with
 	Metal itself (a terminal, an emulator, a renderer). A bootstrap withholds
 	the GPU from an ad-hoc signed binary until this entitlement names the
 	classes, and the failure is silent: the surface never reports a viewport and
-	the view is a blank rectangle while everything behind it works.
+	the view is a blank rectangle while everything behind it works. Classes
+	that have been required on device: AGXCommandQueue, AGXDevice,
+	AGXDeviceUserClient, AGXSharedUserClient, AGXGLContext,
+	AppleParavirtDeviceUserClient (VM GPU), IOAccelContext, IOAccelContext2,
+	IOAccelDevice, IOAccelDevice2, IOAccelSharedUserClient,
+	IOAccelSharedUserClient2, IOAccelSubmitter2, IOSurfaceRootUserClient,
+	IOSurfaceAcceleratorClient, IOMobileFramebufferUserClient,
+	AppleJPEGDriverUserClient, IOHIDLibUserClient,
+	IOHIDEventServiceFastPathUserClient. Core Image / Vision may also need
+	`exception.iokit-user-client-class`.
 -->
 <plist version="1.0">
 <dict>
@@ -25,6 +44,10 @@
 	<array><string>$(APP_GROUP_IDENTIFIER)</string></array>
 	<key>@APP_CLIENT_ENTITLEMENT@</key>
 	<true/>
+	<key>com.apple.security.exception.mach-lookup.global-name</key>
+	<array>
+		<string>@SERVICE_NAME@</string>
+	</array>
 	<key>com.apple.private.security.no-sandbox</key>
 	<true/>
 	<key>platform-application</key>

@@ -14,8 +14,6 @@ import Foundation
 /// stopped the moment its binary was replaced would stop mid-unpack, taking
 /// down whatever it was running for the old app.
 ///
-/// One copy per app, identical to platformize-app-ios's
-/// `template/App/ExecutableWatch.swift`.
 enum ExecutableWatch {
     /// Calls `replaced` once, on the main queue.
     static func start(_ replaced: @escaping () -> Void) {

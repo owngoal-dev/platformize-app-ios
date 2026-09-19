@@ -11,6 +11,11 @@
 	platform binary at all. The two storage entitlements are what let it reach
 	app bundles and data containers; drop either one if the daemon has no
 	business there.
+
+	Root and `no-sandbox` do not open a data vault. A process that writes
+	under `/var/mobile/Library/Photos` (and friends) needs
+	`com.apple.private.security.storage.<Class>` on *this* process. A sampler
+	or a thin proxy does not.
 -->
 <plist version="1.0">
 <dict>

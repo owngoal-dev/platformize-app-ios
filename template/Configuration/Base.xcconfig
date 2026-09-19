@@ -33,7 +33,8 @@ OTHER_CFLAGS = $(inherited) -ffile-prefix-map=$(SRCROOT)=. -ffile-prefix-map=$(O
 // header the importer finds.
 SWIFT_INCLUDE_PATHS = $(inherited) $(SRCROOT)/Shared/XPCShim
 
-// Shared documents exported by the app and its extensions. Both packaging
-// wrappers require the same group on the app and on every embedded extension.
-// Override in the git-ignored Developer*.xcconfig when provisioning another.
+// Shared documents exported by the app and any extension that shares a
+// container. Live Activity–only appexes do not need a group — delete this
+// and the matching key in APP.entitlements. Override in the git-ignored
+// Developer*.xcconfig when provisioning another.
 APP_GROUP_IDENTIFIER = group.@BUNDLE_ID@
