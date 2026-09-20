@@ -12,11 +12,14 @@ find_tool() {
     return 1
 }
 
+# Named once, alone on its line: see postinst for why the id never sits next
+# to a redirect.
+label=@DAEMON_ID@
 if [ "${1:-}" = remove ] || [ "${1:-}" = deconfigure ]; then
     if launchctl="$(find_tool launchctl)"; then
-        "$launchctl" bootout system/@DAEMON_ID@ 2>/dev/null || true
-        "$launchctl" bootout user/501/@DAEMON_ID@ 2>/dev/null || true
-        "$launchctl" bootout gui/501/@DAEMON_ID@ 2>/dev/null || true
+        "$launchctl" bootout "system/$label" 2>/dev/null || true
+        "$launchctl" bootout "user/501/$label" 2>/dev/null || true
+        "$launchctl" bootout "gui/501/$label" 2>/dev/null || true
     fi
 fi
 

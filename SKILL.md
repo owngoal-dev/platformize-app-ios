@@ -559,6 +559,22 @@ Placeholders: `@APP_NAME@`, `@REPO@`, `@BUNDLE_ID@` (`wiki.qaq.<app>`),
 and `@INSTALLED_SIZE@` are substituted by the packager at package time — leave
 those alone.
 
+**Replace the token and nothing around it.** Match `@DAEMON_ID@`, never
+`/@DAEMON_ID@ ` with its neighbours: a replacement that drops the trailing
+space turns `bootout system/<id> 2>/dev/null` into
+`bootout system/<id>2>/dev/null`. That is still valid sh — `sh -n` passes, the
+hook exits 0 — but launchctl is handed the label `<id>2`, the old daemon keeps
+the Mach service across an upgrade, and stderr is no longer silenced. Observed
+while scaffolding Xrash with a replace-all whose pattern ended in a space. The
+hooks now assign `label=@DAEMON_ID@` once, alone on its line, and quote
+`"system/$label"` everywhere else; keep that shape in copied hooks. After any
+rename, prove it rather than read it:
+
+```sh
+grep -nE '[A-Za-z0-9_@]2>' Packaging/DEBIAN/*     # must print nothing
+grep -c '<daemon id>' Packaging/DEBIAN/{postinst,prerm,postrm}   # 1 each
+```
+
 `template/Packaging/DAEMON.plist` is on-demand. Each optional key is a
 one-line XML comment of the form `<!-- <key>…</key><true/> -->` — delete only
 those markers, not the prose at the top of the file. Enable

@@ -82,6 +82,11 @@ class TemplateTests(unittest.TestCase):
             path = self.repo / 'Packaging/DEBIAN' / hook
             path.write_text(path.read_text().replace('@PREFIX@', str(prefix)))
             self.assertNotIn('uicache', path.read_text())
+            # `<id>2>/dev/null` is valid sh, so `sh -n` cannot see a rename that
+            # swallowed the space; the id is assigned once and never inlined.
+            self.assertEqual(path.read_text().count('wiki.qaq.exampled'), 1, hook)
+            self.assertIn('\nlabel=wiki.qaq.exampled\n', path.read_text())
+            self.assertNotRegex(path.read_text(), r'[A-Za-z0-9_@]2>')
             subprocess.run(['sh', '-n', str(path)], check=True)
             log.write_text('')
             subprocess.run(['sh', str(path), argument], env=env, check=True)
