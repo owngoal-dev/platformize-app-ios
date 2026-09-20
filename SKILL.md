@@ -495,6 +495,27 @@ expecting only the direct dependencies should not "fix" the longer list.
    to `Release` so the template Pages workflow observes its completion.
    The app template ships Pages only. Local `make deb` exists to prove the
    build and to `make install` on a device.
+
+   **The workflow publishes the dSYMs too**, in the run's artifact and on the
+   GitHub release, listed in `SHA256SUMS`. A crash report from a shipped
+   build is addresses without them, and the runner's DerivedData is gone
+   when the job ends. Release is already `dwarf-with-dsym`, so they sit
+   beside the products; after packaging:
+
+   ```sh
+   cd "$DERIVED_DATA/Build/Products/Release-iphoneos"
+   zip -qry "$GITHUB_WORKSPACE/build/Packages/<App>_${version}_dSYMs.zip" *.dSYM
+   ```
+
+   One zip **per build**, not per package: both flavours wrap one build, and
+   neither `strip -xS` nor ldid touches `LC_UUID` (check with
+   `dwarfdump --uuid` on the dSYM and on the binary inside the `.deb`). A
+   second build is a second zip — Fila's sandboxed composition
+   (`$DERIVED_DATA-sandboxed`), each of iGhostVT's platform jobs (`-xros`
+   products; the Mac zip takes `Release-maccatalyst` and `Release`). Name
+   it so no existing glob catches it: a merge job that counts `*.zip` or
+   a checksum step over `*.deb` needs the dSYM zip added by name. The APT
+   fetcher picks `.deb` assets by architecture and ignores the rest.
 4. Enable Pages as **GitHub Actions** (not the legacy `/docs` folder). The
    workflow deploys `Documents/Site/` (`index.html`, `icon.png`, and
    `depiction.json` at Site root). Prepare the native depiction as described
