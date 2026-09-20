@@ -56,7 +56,8 @@ helper-per-job: the daemon starts one helper for one closed job.>
   only.** `make check` rejects either in `project.pbxproj`.
 - **No project generators.** `project.pbxproj` is hand-written; `objectVersion`
   is pinned and `make check` fails when Xcode rewrites it.
-- **`CLAUDE.md` is a symlink to `AGENTS.md`.** `make check` enforces it.
+- **Name no specific package manager.** README, these notes and script
+  messages say "your preferred package manager".
 - **No Swift file names the SDK's XPC constant macros.** They come from
   `Shared/XPCShim` through `AppXPC`; naming them in Swift links a dylib that
   iOS 15 does not have. `make check` greps for them.
@@ -104,7 +105,7 @@ checkout path finds no headers.
 
 ## Package Pages
 
-`Documents/Site/depiction.json` is the native Sileo page. Keep its Details
+`Documents/Site/depiction.json` is the native depiction page. Keep its Details
 copy accurate and use the largest banner referenced by the README as
 `headerImage`. The Pages workflow refreshes its Changelog from published GitHub
 releases using the shared updater pinned in that workflow; never maintain a

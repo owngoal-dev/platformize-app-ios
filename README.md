@@ -8,7 +8,7 @@ For command-line tools, see [platformize-bin-ios](https://github.com/owngoal-dev
 
 - `SKILL.md`: app and daemon setup, packaging, third-party license
   collection, and release guidance.
-- `template/`: configuration, packaging files, a native Sileo depiction,
+- `template/`: configuration, packaging files, a native depiction,
   a Pages workflow that loads release notes from GitHub, and an fd-based
   executable watcher for updates and removal.
 - `scripts/`: deployment compatibility and SF Symbol checks, plus localization cleanup.

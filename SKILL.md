@@ -150,8 +150,11 @@ self-updating installer into the daemon.
   git commit count) and never writes the file from a build. Pick one.
 - **No project generators.** `project.pbxproj` is hand-written, `objectVersion`
   pinned (77). `make check` fails if Xcode rewrites it; revert that line.
-- **`CLAUDE.md` is a symlink to `AGENTS.md`**, never a file. `make check`
-  enforces it.
+- **Name no specific package manager.** README, `AGENTS.md`, the depiction
+  and script messages say "your preferred package manager" — no named
+  client, no client-specific "Add to …" link, no `brew install` hint. Field
+  names such as `SileoDepiction` are identifiers and stay.
+- **No `CLAUDE.md`.** It is deprecated; `AGENTS.md` is the only notes file.
 - **Ad-hoc sign every embedded library, then read the entitlements back out.**
   The Swift compatibility dylibs the toolchain copies in keep Apple's own
   signature, which a jailbroken iOS 18 refuses outside the system: dyld halts
@@ -686,7 +689,6 @@ mv App/SceneRestorationReset.swift "<App>/Application/"
 # skip ExecutableWatch only for a self-updating installer (the helper owns the replace):
 mv App/ExecutableWatch.swift "<App>/Application/"
 rmdir App
-ln -sfn AGENTS.md CLAUDE.md     # template already has the symlink; -f replaces a copied file
 grep -rn '@[A-Z_]*@' --exclude-dir=.git .         # every hit is a decision
 # The sibling's name, swept over the whole repo — not just Makefile/Scripts.
 # Must print nothing before the first build (AGENTS.md may credit the sibling).

@@ -63,7 +63,7 @@ class TemplateTests(unittest.TestCase):
         self.assertIn('Depiction: https://owngoal-dev.github.io/Example/\n', control)
         self.assertIn('SileoDepiction: https://owngoal-dev.github.io/Example/depiction.json\n', control)
         self.assertIn('uikittools', control)
-        self.assertTrue((self.repo / 'CLAUDE.md').is_symlink())
+        self.assertFalse((self.repo / 'CLAUDE.md').exists())
         for path in self.repo.rglob('*'):
             if path.is_file() and not path.is_symlink():
                 remaining = set(re.findall(r'@([A-Z_]+)@', path.read_text()))

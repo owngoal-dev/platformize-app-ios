@@ -19,8 +19,9 @@ scaffolding; there is no build here.
   `Makefile` belong to the live repos and change with them. The skill says to
   copy them from the sibling whose daemon shape you picked, which is honest;
   a fork here would be stale and would be copied anyway.
-- **`CLAUDE.md` is a symlink to `AGENTS.md`**, here and in `template/`. Never
-  replace it with a file.
+- **Name no specific package manager**, here and in `template/`: say "your
+  preferred package manager". Field names such as `SileoDepiction` stay.
+- **No `CLAUDE.md`**, here or in `template/`. It is deprecated.
 - **Facts come from a device, an SDK or a build, not from memory.** Add a fact
   together with how it was observed (`otool -L`, `nm -m`, a `.tbd` grep, a
   crash report, a device run). Remove it when it stops being true.
