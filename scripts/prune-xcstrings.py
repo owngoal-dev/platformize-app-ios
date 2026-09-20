@@ -11,7 +11,7 @@ becomes `manual`, which Xcode never touches; a stale key that appears nowhere
 is removed.
 
 Usage: prune-xcstrings.py <catalog> <source root> [<source root> ...]
-       prune-xcstrings.py Fila/Resources/Localizable.xcstrings Fila Packages/FilaKit/Sources
+       prune-xcstrings.py <App>/Resources/Localizable.xcstrings <App> Packages/<App>Kit/Sources
 
 The catalog is written back in Xcode's own layout (two-space indent, a space
 before each colon), so the diff is only the entries that changed.

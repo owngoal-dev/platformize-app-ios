@@ -532,6 +532,8 @@ cp -R <this skill>/template/ <repo>/ && cd <repo>
 # Fila / iGhostVT / Irisin: .github/workflows/release.yml
 # CocoaInspector:         .github/workflows/ci.yml
 cp <sibling>/.github/workflows/<release.yml-or-ci.yml> .github/workflows/release.yml
+# The two release gates travel with the repo; they name no sibling.
+cp <this skill>/scripts/audit-ios-floor.sh <this skill>/scripts/check-symbol-availability.py Scripts/
 # Set its workflow name to Release, then remove only product-only jobs.
 # Keep macos-26, Xcode selection, signing, verification, and all required assets.
 mv Packaging/APP.entitlements    "Packaging/<App>.entitlements"
@@ -546,9 +548,28 @@ mv App/SceneRestorationReset.swift "<App>/Application/"
 mv App/ExecutableWatch.swift "<App>/Application/"
 rmdir App
 ln -sfn AGENTS.md CLAUDE.md     # template already has the symlink; -f replaces a copied file
-grep -rn '@[A-Z_]*@' .                            # every hit is a decision
-grep -rni 'fila\|ighostvt\|inspector\|irisin\|chromatic\|saily' Makefile Scripts Packaging
+grep -rn '@[A-Z_]*@' --exclude-dir=.git .         # every hit is a decision
+# The sibling's name, swept over the whole repo — not just Makefile/Scripts.
+# Must print nothing before the first build (AGENTS.md may credit the sibling).
+grep -rniE 'fila|ighostvt|inspector|irisin|chromatic|saily' \
+    --exclude-dir=.git --exclude=AGENTS.md .
 ```
+
+**The rename is finished when that sweep is empty, not when the build is
+green.** A leftover sibling name builds and packages without complaint. Where
+they were found while scaffolding Xrash from CocoaInspector, all outside
+anything a compiler reads: `DERIVED_DATA ?= /private/tmp/inspector-deriveddata`
+(two apps then share one derived-data folder and cross-contaminate — the
+false-green case from *Build & verify*), `mktemp` prefixes in every script,
+the `<sibling>-harness` temp names, the workflow `concurrency.group`,
+`$RUNNER_TEMP/<sibling>-…`, the artifact name, the release-notes title, the
+package id handed to `verify-deb.sh` in the workflow, and the `usage:` /
+header comments of copied scripts. Rewrite the Makefile and the packager in one
+pass rather than patching lines as they fail: a copied packager also carries
+the sibling's *shape* (CocoaInspector's takes a CLI binary, its entitlements
+and a back-deployed `libswift_Concurrency.dylib` for an iOS 13 floor), and
+argument counts, payload lists and entitlement loops all have to change
+together.
 
 Placeholders: `@APP_NAME@`, `@REPO@`, `@BUNDLE_ID@` (`wiki.qaq.<app>`),
 `@DAEMON@` (`<app>d`), `@DAEMON_ID@` (`wiki.qaq.<app>d`), `@SERVICE_NAME@`

@@ -11,7 +11,7 @@ name to a release year, `year_to_release` maps that year to an iOS version.
 Without it — a Linux CI runner — this exits 0 rather than pretending.
 
 Usage: check-symbol-availability.py <floor> <source root> [<source root> …]
-       check-symbol-availability.py 15.0 Fila Packages/FilaKit/Sources
+       check-symbol-availability.py 15.0 <App> Packages/<App>Kit/Sources
 """
 
 import plistlib

@@ -48,7 +48,7 @@ binaries() {
 #    The list is deliberately explicit rather than clever. Add a line when the
 #    SDK adds an overlay; the point is that these have bitten a shipped build.
 declare -a late_libraries=(
-    "libswiftXPC.dylib:16.0"          # iOS 27 SDK overlay; killed Fila 0.1.6 on 15
+    "libswiftXPC.dylib:16.0"          # iOS 27 SDK overlay; killed a shipped 0.1.6 on iOS 15 (SKILL.md)
     "libswiftObservation.dylib:17.0"
     "libswiftSpatial.dylib:17.0"
     "libswiftSynchronization.dylib:18.0"
