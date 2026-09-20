@@ -791,7 +791,15 @@ The completion trigger also handles releases created with `GITHUB_TOKEN`,
 whose release events do not start another workflow.
 
 The copied release workflow must publish the release only after its build and
-package checks pass. Retain its macOS runner, signing steps, and product-specific
+package checks pass, and it must not serialize work that shares nothing. Shape
+it as **test ‖ compile → release**: `test` runs `make harness`; `compile`
+builds, verifies and uploads the packages with the harness skipped
+(`SKIP_HARNESS=1`; the Makefile's `build` target drops that prerequisite only
+when it is set, so a local build is still gated); `release` has
+`needs: [test, compile]`, runs on tags only, downloads the artifact, checks
+`SHA256SUMS` and publishes — no checkout, no Xcode, an Ubuntu runner. A
+failure in either parallel job skips `release` and fails the run. Fila and
+Xrash are the references. Retain its macOS runner, signing steps, and product-specific
 verification. If its name differs, change it to `Release` or update the Pages
 `workflow_run.workflows` entry to the same name. Enable Pages with GitHub Actions,
 publish the first stable release, and verify the deployed JSON and banner URLs.
