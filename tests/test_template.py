@@ -97,6 +97,15 @@ class TemplateTests(unittest.TestCase):
             if hook == 'postinst':
                 self.assertIn(f'bootstrap system {prefix}/Library/LaunchDaemons/wiki.qaq.exampled.plist', calls)
 
+    def test_license_collection_is_a_rule_of_the_scaffold(self):
+        notes = (self.repo / 'AGENTS.md').read_text()
+        skill = (ROOT / 'SKILL.md').read_text()
+        for text in (notes, skill):
+            self.assertIn('Collect Licenses', text)
+            self.assertIn('collect-licenses.py', text)
+            self.assertIn('Licenses.json', text)
+            self.assertIn('GPL', text)
+
     def test_pages_workflow_uses_generic_pinned_updater(self):
         workflow = self.repo / '.github/workflows/pages.yml'
         text = workflow.read_text()

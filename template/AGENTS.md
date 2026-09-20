@@ -65,6 +65,15 @@ helper-per-job: the daemon starts one helper for one closed job.>
 - **No new dependency without a reason that survives the ladder**: what it
   replaces, and why the hand-written version would be worse rather than merely
   longer. Nothing third-party links into the daemon.
+- **The Licenses screen is generated, not written.** The app target's
+  **Collect Licenses** build phase runs `Scripts/collect-licenses.py`, which
+  writes `Licenses.json` into the app bundle from the repository `LICENSE`,
+  every pin in `Package.resolved` (checkouts and binary artifacts, nested
+  notices included) and any vendored source. A pin with no notice or
+  GPL-family text fails the build. Vendored code keeps its upstream `LICENSE`
+  beside it and its header on each file; MIT / BSD / Apache only. `make check`
+  requires the phase, the packager requires the file. Read the generated list
+  after adding a dependency.
 - **No absolute build path in a shipped binary.** `#file` is concise
   (`SWIFT_UPCOMING_FEATURE_CONCISE_MAGIC_FILE`, prefix maps in `Base.xcconfig`);
   the packager greps every binary for the repository root and fails on a hit.

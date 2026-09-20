@@ -185,6 +185,11 @@ self-updating installer into the daemon.
   package time.
   `postinst` boots out **system, user/501 and gui/501** before bootstrap:
   roothide's launchctl can land a system daemon in the per-user domain.
+- **Every shipped app carries the notices of everything it links, generated
+  by the build.** A **Collect Licenses** build phase writes `Licenses.json`
+  into the bundle, Settings shows it, `make check` requires the phase and the
+  packager refuses a bundle without the file. Never a hand-kept list, never a
+  rewritten collector or screen — copy the sibling's. See *Licenses* below.
 - **Review for sensitive information before every upload or publish, by
   reading.** Before a push, a tag or a release, have an agent read the diff,
   the staged payload tree and `strings` of the built binaries for credentials,
@@ -293,7 +298,10 @@ Packaging/           DEBIAN/{control,postinst,prerm} and optional postrm,
 Shared/              XPC constant shim (template); Fila keeps it inside the package
 Scripts/             copied from the sibling: package-deb.sh, verify-deb.sh,
                      sign-frameworks.sh, install-device.sh, vphone.sh,
-                     run-xcodebuild.sh. package-ipa.sh is Fila only.
+                     run-xcodebuild.sh, collect-licenses.py. package-ipa.sh
+                     is Fila only.
+Licenses/            reviewed discipline only: one folder per binary component
+                     (notice + notice.json), review.json, Compatibility.md
 Documents/           Architecture.md, Roadmap.md, Site/ (Pages source)
 manifest.json        the owngoal-packages entry
 ```
@@ -321,7 +329,7 @@ The Makefile targets, in the order you will need them:
 | target | what it does |
 | --- | --- |
 | `make harness` | `swift test --package-path Packages/<App>Kit`. No device. Run first: this is where a guard mistake or a copy that loses an xattr is caught. |
-| `make check` | project and packaging validation: xcconfig ownership, `objectVersion`, plist lint, entitlement shape, the UI-library greps, the deployment-floor greps. |
+| `make check` | project and packaging validation: xcconfig ownership, `objectVersion`, plist lint, entitlement shape, the UI-library greps, the deployment-floor greps, the Collect Licenses phase. |
 | `make build` | unsigned app + daemon for iPhoneOS (runs `check` and `harness` first). |
 | `make sim` | Debug onto the booted simulator. There is **no LaunchDaemon** there and there cannot be — `launchd_sim` prefixes every job's program path with the sealed runtime root — so the simulator exercises the unprivileged backend and everything visual. Irisin is the exception: it runs the installer in-process against a directory of its own. Do not fake a daemon in the app to "fix" the simulator. |
 | `make deb` / `make deb-all` | package for `FLAVOR` (roothide default, `iphoneos-arm64e`, rootful paths; `FLAVOR=rootless` packages the same binaries under `/var/jb` as `iphoneos-arm64`), ad-hoc sign with ldid, then verify the archive. |
@@ -390,6 +398,89 @@ reorders the file during every build — re-read the diff.
 A translation keeps every format specifier with the same type and count, and
 uses positional forms (`%1$@`, `%2$lld`) wherever the language reorders them.
 Keep blunt warnings blunt in every language.
+
+## Licenses are collected by the build, never written by hand
+
+MIT, BSD and Apache all make the same demand of a binary distribution: the
+notice travels with it. A deb is a binary distribution. An app with SwiftPM
+dependencies and no Licenses screen is out of compliance the day it ships, and
+a hand-kept list is out of date the day a pin moves. Three of the four
+siblings ship this; CocoaInspector links nothing third-party and has none.
+A new app gets it **in the scaffold, before the first dependency is added** —
+not as a release chore.
+
+The pieces, all copied, none rewritten:
+
+- **`Scripts/collect-licenses.py`** (chmod +x) writes one `Licenses.json`: a
+  JSON array of `{name, version?, license, url, text}`. It collects the
+  repository's own `LICENSE` (versioned from `Version.xcconfig`, named from
+  `manifest.json`), every pin in `Package.resolved` — the checkout under
+  DerivedData's `SourcePackages/checkouts` *and* its binary artifacts under
+  `SourcePackages/artifacts`, walked for LICENSE / COPYING / NOTICE files and
+  `Licenses/` folders, nested ones included (that is how TreeSitter's notice
+  inside `Runestone.xcframework` gets in) — and whatever the repo vendors.
+  It **fails the build** on a pin with no checkout, a checkout with neither a
+  license file nor a copyright header, and GPL-family text anywhere in the
+  set. iGhostVT once shipped Ghostty's GPLv3 shell integration in a deb by
+  accident; this is the check that keeps it out.
+- **The "Collect Licenses" build phase** on the app target, last, hand-written
+  into `project.pbxproj`: `alwaysOutOfDate = 1`, `outputPaths` =
+  `$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Licenses.json`,
+  and `exec "$SRCROOT/Scripts/collect-licenses.py" --project "$SRCROOT"
+  --build-dir "$BUILD_DIR" --output <that path>`. The script finds
+  `SourcePackages` by walking up from `BUILD_DIR`, so it works for a build and
+  an archive alike. It reads outside `SRCROOT`: either set
+  `ENABLE_USER_SCRIPT_SANDBOXING = NO` on the app target (Fila, Irisin) or
+  declare every file it reads as `inputPaths` (iGhostVT — and then a new
+  vendored folder that is not declared never re-runs the phase). The file
+  goes into the **app bundle only**, never the daemon.
+- **The screen.** Settings ▸ About ▸ Licenses: a row per notice (name,
+  `license · version`), the whole text selectable a push away, read from
+  `Bundle.main`'s `Licenses.json`. UIKit: Fila's
+  `Interface/Settings/LicensesViewController.swift` or Irisin's
+  `LicenseController.swift` (the same screen). SwiftUI: iGhostVT's
+  `LicensesView.swift`. Copy, rename, localize the title; about 140 lines.
+- **The gates.** `make check`: the collector is executable and
+  `project.pbxproj` names `collect-licenses.py` (otherwise the screen is
+  silently empty). `verify-deb.sh` / the packagers: the payload contains
+  `<App>.app/Licenses.json`. Both are a few lines in the sibling's Makefile
+  and scripts; keep them when trimming.
+
+Two disciplines, as with the string catalogue. Pick by what the app links:
+
+- **Scanned (Irisin).** Everything comes from the checkouts; the license label
+  is a keyword heuristic with `Other` as the fallback and the text shipped
+  whole. Right when every dependency is a SwiftPM pin that carries its own
+  notice. Two constants to edit after copying: `APP_SOURCES` (the app's own
+  targets, scanned for a Swift file whose header comment names a license —
+  code copied in from elsewhere ships that header) and `NOT_SHIPPED` (pins no
+  shipped target links, e.g. an argument parser that serves only a CLI).
+- **Reviewed (Fila, iGhostVT).** A `Licenses/` folder at the repo root, one
+  directory per component that ships as a *binary with no license file*
+  (Ghostty inside libghostty-spm, the tree-sitter grammars inside Runestone,
+  BoringSSL, smbclient): the full notice plus `notice.json` (source URL,
+  content hash, version). `review.json` records the reviewed hash and display
+  label of every notice and the reviewed XCFramework revisions; a changed
+  text, a new component or a binary upgrade fails collection until a person
+  re-reads it, and `Compatibility.md` says why each licence is compatible.
+  Right as soon as one prebuilt binary hides its components.
+
+**Vendored source keeps its notice beside it.** Code copied into a local
+package lives under `Sources/<Target>/Vendor/<Name>/` with the upstream
+`LICENSE` in that folder and the upstream header left on each file; the
+collector walks `Packages/` for nested license files and names the entry after
+the folder (Xrash's `local_entries`). Vendoring is a licence decision before it
+is a code decision: MIT / BSD / Apache-2.0 / ISC / zlib are fine, LGPL and GPL
+are not — LGPL's relinking condition cannot be met by a statically linked,
+ad-hoc signed iOS binary. Check the licence *before* evaluating the library,
+and record the refusal where the dependency decision is written down.
+
+Verify it rather than trust it: after a build, `python3 -m json.tool
+<App>.app/Licenses.json | grep '"name"'` and compare against
+`Package.resolved` plus the vendored folders. A missing transitive pin
+(swift-crypto behind a wrapper, swift-asn1 behind that) is the usual surprise
+— the collector reads `Package.resolved`, so they are all there; a reader
+expecting only the direct dependencies should not "fix" the longer list.
 
 ## Publishing
 
@@ -517,8 +608,8 @@ XPC constant shim, the app's update watch, the scene-restoration reset
 (`App/main.swift`, `App/SceneRestorationReset.swift`), the Pages workflow and
 Site stub, and an `AGENTS.md` skeleton. **The build scripts are not here on
 purpose** — `package-deb.sh`, `verify-deb.sh`, the ipa pair,
-`sign-frameworks.sh`, `install-device.sh`, `vphone.sh` and the `Makefile` move
-with the live repos, and a fork of them here would be stale within a month.
+`sign-frameworks.sh`, `install-device.sh`, `vphone.sh`, `collect-licenses.py`
+(and the Licenses screen) and the `Makefile` move with the live repos, and a fork of them here would be stale within a month.
 Copy those from the sibling whose daemon shape you picked, then rename.
 
 ```sh
@@ -532,6 +623,10 @@ cp -R <this skill>/template/ <repo>/ && cd <repo>
 # Fila / iGhostVT / Irisin: .github/workflows/release.yml
 # CocoaInspector:         .github/workflows/ci.yml
 cp <sibling>/.github/workflows/<release.yml-or-ci.yml> .github/workflows/release.yml
+# Licenses: CocoaInspector has no collector, so its Scripts/ brings none. Take
+# Irisin's (scanned) or Fila's (reviewed) collector, the matching screen, the
+# build phase, and the make check / verify-deb gates — see "Licenses".
+# cp <Irisin>/Scripts/collect-licenses.py Scripts/ && chmod +x Scripts/collect-licenses.py
 # The two release gates travel with the repo; they name no sibling.
 cp <this skill>/scripts/audit-ios-floor.sh <this skill>/scripts/check-symbol-availability.py Scripts/
 # Set its workflow name to Release, then remove only product-only jobs.
@@ -666,5 +761,6 @@ in packaging inputs are intentional until the packages are built.
 A report that says: what was built, which daemon shape and which sibling the
 scripts came from, which of the four floor audits ran and what they said, which
 surfaces were actually tested (harness / simulator / vphone / device / oldest
-OS), the deb names and digests for both flavours, the tipa and ipa, the release
+OS), how many notices `Licenses.json` carries and which discipline collects
+them, the deb names and digests for both flavours, the tipa and ipa, the release
 URL and the owngoal-packages commit.
