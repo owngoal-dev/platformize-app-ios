@@ -571,6 +571,12 @@ and a back-deployed `libswift_Concurrency.dylib` for an iOS 13 floor), and
 argument counts, payload lists and entitlement loops all have to change
 together.
 
+Copy the sibling's `.gitignore` too, then make sure it ignores `.build/` and
+`.swiftpm/`: CocoaInspector has no local package, so its file does not, and the
+first `git add -A` after `make harness` stages the whole SwiftPM build folder.
+Read `git status --short` before the first commit; the scaffold is about fifty
+files, not hundreds.
+
 Placeholders: `@APP_NAME@`, `@REPO@`, `@BUNDLE_ID@` (`wiki.qaq.<app>`),
 `@DAEMON@` (`<app>d`), `@DAEMON_ID@` (`wiki.qaq.<app>d`), `@SERVICE_NAME@`
 (`wiki.qaq.<app>.service`), `@APP_CLIENT_ENTITLEMENT@`
