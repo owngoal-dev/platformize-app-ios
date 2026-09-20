@@ -548,13 +548,31 @@ did not:
   shipping: Fila aliases the wrapper (`moduleAliases: ["LibArchive":
   "FilaLibArchive"]`); Irisin drops the wrapper and links the artifact as
   its own `.binaryTarget(name: "libarchive", url:, checksum:)`, adding `z`,
-  `bz2`, `iconv` and `xml2` to `linkerSettings` itself.
+  `bz2`, `iconv` and `xml2` to `linkerSettings` itself. The alias renames the
+  *built* module only: source keeps `import LibArchive`, and
+  `import <App>LibArchive` is a compile error.
+- **A package's floor is in its source, not only in its manifest.** A
+  library that uses `Int128` / `UInt128` needs iOS 18 whatever `platforms:`
+  says, and lowering the manifest in a fork does not compile. Build a
+  candidate for `generic/platform=iOS` at your floor before designing around
+  it — next to reading its licence, and before reading its API.
 - **iPadOS 18 reserves the top of the screen for a hidden tab bar.** A
   `UITabBarController` whose tab bar is hidden — because the app draws its own
   — still lays out for the iPad top tab bar and leaves a blank band under the
   status bar. A root that does not want a tab bar is a plain
   `UIViewController` with child containment, not a `UITabBarController` with
   the bar hidden. Seen on an iPad on iPadOS 18, absent on iOS 15 and 16.
+  Whether the root wants one is the owner's rule, not taste: **more than
+  three top-level pages get a real tab bar**, one navigation controller per
+  tab; three or fewer get a single stack with a bar button that pushes
+  Settings.
+- **Nothing the developer needed to see stays on screen.** A backend state
+  dumped into a navigation prompt is the first thing the owner sees. Status
+  is a localized word in Settings (*Connecting…*, *Connected*, *Limited*);
+  raw enum descriptions, install roots and file names with their extensions
+  belong in the log. A list row is a picture (the app's icon, or a `terminal`
+  glyph for a bare executable), a name a person would say, and a subtitle
+  that carries information.
 - **A blank Metal surface is an entitlement miss.** The bootstrap withholds
   the GPU from an ad-hoc binary until
   `com.apple.security.iokit-user-client-class` names the classes
@@ -627,6 +645,11 @@ cp <sibling>/.github/workflows/<release.yml-or-ci.yml> .github/workflows/release
 # Irisin's (scanned) or Fila's (reviewed) collector, the matching screen, the
 # build phase, and the make check / verify-deb gates — see "Licenses".
 # cp <Irisin>/Scripts/collect-licenses.py Scripts/ && chmod +x Scripts/collect-licenses.py
+# UI and string gates: CocoaInspector's Scripts/ brings neither. An app on
+# SnapKit / AlertController takes Fila's check-ui-libraries.sh and
+# check-localization.sh, cut down to its own roots, and wires both into
+# `make check` on day one — run them once straight away: copied code that
+# still presents a UIAlertController fails the first of them.
 # The two release gates travel with the repo; they name no sibling.
 cp <this skill>/scripts/audit-ios-floor.sh <this skill>/scripts/check-symbol-availability.py Scripts/
 # Set its workflow name to Release, then remove only product-only jobs.
