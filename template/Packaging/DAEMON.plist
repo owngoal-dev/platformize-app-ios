@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-	Rename this file to the daemon bundle id. `@PREFIX@` is substituted at
-	package time: empty for roothide, /var/jb for rootless.
+	Rename this file to the daemon bundle id, and cut this comment down to
+	what describes your daemon: it ships in the package. The install prefix in
+	ProgramArguments is substituted at package time (the token is not spelled
+	here, where the packager would substitute it too): empty for roothide,
+	whose launchctl re-prefixes the rootful path at every load, and /var/jb
+	for rootless. Never write a resolved bootstrap path into this file.
 
 	Default is on-demand: launchd starts the daemon when the app looks the Mach
 	service up, and it exits when the last client is gone.

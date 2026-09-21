@@ -56,7 +56,7 @@ declare -a late_libraries=(
 )
 
 check_libraries() {
-    local binary="$1" line library minimum
+    local binary="$1" line entry library minimum
     while IFS= read -r line; do
         [[ "$line" == *", weak)"* ]] && continue
         for entry in "${late_libraries[@]}"; do

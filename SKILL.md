@@ -87,6 +87,16 @@ self-updating installer into the daemon.
   of attempts. A build that ships a daemon beside its bundle never falls back.
   Ask `hello().isPrivileged`, never a construction-time "is the daemon
   installed" flag.
+- **A hello has a bound; a missing service does not need one.** A lookup
+  miss errors at once. A service launchd has registered whose daemon never
+  takes the listener (program path wrong, killed at exec, wedged, crash
+  loop under `KeepAlive`) queues the message with no reply and no XPC error,
+  and an unbounded `send_message_with_reply` continuation waits for good.
+  Arm a timer beside the hello (Xrash 15 s, iGhostVT 20 s, Inspector 30 s
+  per request; a cold daemon after a userspace reboot is slow, so be
+  generous) and `xpc_connection_cancel` on expiry: the pending reply block
+  fires once with an error and the existing miss path takes it. Guard the
+  timer by connection generation so it cannot resume anything twice.
 - **Peer authentication is the whole trust boundary.** Before the first
   request field is decoded: kernel audit token; pid > 1; euid root or mobile
   (501); `wiki.qaq.<app>.client` and `com.apple.private.security.no-sandbox`
@@ -138,7 +148,13 @@ self-updating installer into the daemon.
   deletes this bundle's `.savedState` *before* `UIApplicationMain`. The app
   delegate is not `@main`. Background resumes do not run `main`, so a live
   scene is left alone. Preferences and other bundles under the same folder
-  stay. Do this on every app, not only after a UI-framework rewrite.
+  stay. Do this on every app, not only after a UI-framework rewrite, with
+  two exceptions. Not on Mac Catalyst, where the same folder is AppKit's
+  and holds the window frames (`#if !targetEnvironment(macCatalyst)`). And
+  check first in an app that keys its own state by
+  `UISceneSession.persistentIdentifier` (Fila's per-window tab lists): if
+  the reset orphans that state on every cold launch, the app keeps its
+  `@main` and says why in its notes.
 - **Every path is canonicalised before a decision is made about it.**
   `realpath(3)` first, then compare components; reject an embedded NUL first.
 - **Versions and the deployment target live in `Configuration/*.xcconfig`
@@ -606,6 +622,21 @@ did not:
   viewport, while the daemon and everything behind it work. Copy iGhostVT's
   list. Core Image / Vision may need the `exception.iokit-user-client-class`
   spelling as well (Irisin, after a Bold Text crash).
+- **RootHide renames the bootstrap root at every jailbreak, and rewrites the
+  launchd plists to match.** Its `launchctl` patches each file in
+  `Library/LaunchDaemons` in place (`plistpatch.m`): a plist without
+  `__Patched` gets the root put in front of `ProgramArguments[0]` and the
+  other path keys; one with the mark has the old root taken off first. A
+  package that ships the rootful path (`@PREFIX@` empty) and loads it with
+  the bootstrap's `launchctl` — every app here but Irisin — survives the
+  rename and has nothing to do. A plist loaded by anything else (Irisin's
+  helper, through IcliKit, which launchd hands kernel paths) must be
+  written as `launchctl` would have left it: the kernel path *and*
+  `__Patched = true`. The path alone comes out as new root + old root after
+  the next jailbreak, launchd answers `78: EX_CONFIG` once, the job sits at
+  `spawn scheduled`, and an app that never falls back says *Connecting…*
+  for good (Irisin through 4.3.5). `launchctl print system/<label>` shows
+  the doubled `program`.
 - **Connected is not the first byte.** After `launchctl reboot userspace` the
   first zsh can take ~30 s to print (cold caches, AMFI/trustcache, load
   300–500). A UI that hides *Connecting…* at `openSession` looks identical to
@@ -748,9 +779,11 @@ one-line XML comment of the form `<!-- <key>…</key><true/> -->` — delete onl
 those markers, not the prose at the top of the file. Enable
 `AbandonProcessGroup` for a helper-per-job daemon; enable `KeepAlive` /
 `RunAtLoad` for a session host (and set `ProcessType` to Interactive).
-`postinst` already boots out three launchd domains. Fila and Inspector
-packagers copy only `postinst` and `prerm`: add `postrm` to that loop, or
-delete `Packaging/DEBIAN/postrm`. Keep `uikittools` in `Depends` for automatic
+`postinst` already boots out three launchd domains. Every sibling's packager
+stages `postinst`, `prerm` and `postrm`; an older copy that loops over the
+first two needs `postrm` added. Hooks that call `killall` (a session host
+kills its app and its orphaned children) add `shell-cmds` to `Depends`.
+Keep `uikittools` in `Depends` for automatic
 app registration and removal through its triggers. The lifecycle hooks manage
 the daemon only; remove any explicit `uicache` calls from copied scripts too.
 Default `APP.entitlements` has an App Group; delete it unless an extension
