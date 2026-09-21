@@ -10,7 +10,7 @@ scaffolding; there is no build here.
   when they disagree, fix `README.md`.
 - **`template/` mirrors the live app repos.** It is the generic part of
   [Fila](https://github.com/owngoal-dev/Fila), with the shared pieces of
-  iGhostVT, CocoaInspector and
+  iGhostVT, Inspector and
   [Irisin](https://github.com/Lakr233/Irisin). When one of those changes a
   packaging input, port the change here; when this changes, port it there. Do
   not let them drift.
@@ -48,7 +48,7 @@ applies to anything native this repo builds; read both when the app links C.
 
 `SKILL.md` is the intersection of four shipped repos. Fila is the packaging
 reference and the default (fd-over-XPC) daemon. iGhostVT is the session-host
-exception (`KeepAlive`, proxy + io). CocoaInspector is the smallest on-demand
+exception (`KeepAlive`, proxy + io). Inspector is the smallest on-demand
 daemon. Irisin (published as Lakr233/Irisin; Chromatic/Saily are dead names)
 contributed helper-per-job, Swift 6, catalogue pruning and the build-path
 rule. In the deployment floor section it is the record of one bug: Fila 0.1.6

@@ -1,13 +1,13 @@
 ---
 name: platformize-app-ios
-description: Build and ship a native iOS app for jailbroken devices — a UIKit app plus its own root LaunchDaemon over XPC, packaged as roothide (iphoneos-arm64e) and rootless (iphoneos-arm64) debs and as a TrollStore .tipa / sideload .ipa, released from GitHub Actions and served by the owngoal-packages APT repo. Use when asked to "build a jailbreak app", "give my app a root daemon", "package an iOS app as a deb", "make it work on roothide and rootless", "ship it to TrollStore too", or to start a new OwnGoal app repo the way Fila, iGhostVT, CocoaInspector and Irisin are built.
+description: Build and ship a native iOS app for jailbroken devices — a UIKit app plus its own root LaunchDaemon over XPC, packaged as roothide (iphoneos-arm64e) and rootless (iphoneos-arm64) debs and as a TrollStore .tipa / sideload .ipa, released from GitHub Actions and served by the owngoal-packages APT repo. Use when asked to "build a jailbreak app", "give my app a root daemon", "package an iOS app as a deb", "make it work on roothide and rootless", "ship it to TrollStore too", or to start a new OwnGoal app repo the way Fila, iGhostVT, Inspector and Irisin are built.
 ---
 
 # platformize-app-ios
 
 Turn an iOS app into `wiki.qaq.<app>_<ver>_iphoneos-arm64{,e}.deb` plus
 `<App>.tipa` / `<App>.ipa`, the way
-`owngoal-dev/{Fila,iGhostVT,CocoaInspector}` and `Lakr233/Irisin` do it.
+`owngoal-dev/{Fila,iGhostVT,Inspector}` and `Lakr233/Irisin` do it.
 Reference implementations — pick by *daemon shape*, then copy that sibling's
 `Scripts/` and `Makefile`:
 
@@ -17,7 +17,7 @@ Reference implementations — pick by *daemon shape*, then copy that sibling's
 - `../iGhostVT` — terminal: app + `ighostvtd` proxy + `ighostvtd-io` + CLI +
   widgets, SwiftUI. Copy this only when something must stay open after the app
   dies and its buffers would jetsam a 6 MB launchd job.
-- `../CocoaInspector` — process inspector: app + daemon + CLI. The smallest
+- `../Inspector` — process inspector: app + daemon + CLI. The smallest
   on-demand daemon, and the easiest to read end to end. Floor is iOS 13.
 - [Irisin](https://github.com/Lakr233/Irisin) (formerly Chromatic / Saily) — package manager: app +
   `irisind` + one `irisin-install` per closed job. Swift 6 with main-actor
@@ -41,12 +41,12 @@ launchd caps a LaunchDaemon at 6 MB. That number decides the process model.
 Absence of the daemon at lookup is still *Connecting…* in every shape; a miss
 is a respring, not a failure screen.
 
-**Fila / CocoaInspector — one process, on-demand (the template default).**
+**Fila / Inspector — one process, on-demand (the template default).**
 Privileged work is a syscall that returns immediately, or an fd the *client*
 holds (`xpc_dictionary_set_fd`). Bytes never enter the daemon. Last client
 gone → idle-exit (Fila: 3 s, and not while a child it spawned is unreaped).
 No `KeepAlive`, no `RunAtLoad`. Copy Fila for a file/descriptor daemon,
-CocoaInspector for a pull-sampler.
+Inspector for a pull-sampler.
 
 **iGhostVT — proxy + unsized child, `KeepAlive`.** Something must stay open
 after the app dies (PTY master, replay, a long-lived child) *and* that
@@ -102,7 +102,7 @@ self-updating installer into the daemon.
   (501); `wiki.qaq.<app>.client` and `com.apple.private.security.no-sandbox`
   strictly true; `proc_pidpath` realpath-equal to the installed app (and CLI,
   if any) inside the install root; regular file, uid 0, owner-executable, not
-  group- or world-writable. Fila, CocoaInspector and Irisin also require
+  group- or world-writable. Fila, Inspector and Irisin also require
   `platform-application` on the peer. iGhostVT dropped it on both sides: it
   attests "signed as platform", not "this client", and requiring it forced
   the app to carry an entitlement that tightens its sandbox and buys the
@@ -220,7 +220,7 @@ self-updating installer into the daemon.
 
 An app that says `IPHONEOS_DEPLOYMENT_TARGET = 15.0` and builds cleanly against
 this year's SDK is **not** an app that runs on iOS 15. The live floors are not
-one number (CocoaInspector 13, Fila and iGhostVT 15, Irisin 16). Four things
+one number (Inspector 13, Fila and iGhostVT 15, Irisin 16). Four things
 silently raise whatever floor you claim, and none of them is a warning. Audit
 all four before any release; `scripts/audit-ios-floor.sh` does exactly that.
 
@@ -252,7 +252,7 @@ linker flag: with no symbol from a dylib in use, ld weak-links it by itself and
 dyld tolerates its absence. For SDK constants that exist in C, read them through
 C — a header-only `[system]` module with `static inline` accessors, imported by
 the one module every target links (see `../Fila`'s `Packages/FilaKit/Sources/CFilaXPC`
-and `FilaXPC` in `FilaProtocol`, and the same shim in `../CocoaInspector`,
+and `FilaXPC` in `FilaProtocol`, and the same shim in `../Inspector`,
 `../iGhostVT` and Irisin). `import XPC` itself is harmless; only the symbols
 matter. Keep the shim even at a floor of 16: one path on every OS.
 
@@ -326,7 +326,7 @@ manifest.json        the owngoal-packages entry
 ```
 
 Fila and Irisin spell the prose folder `Documentation/`. iGhostVT and
-CocoaInspector use `Documents/`. The template uses `Documents/Site/`. The
+Inspector use `Documents/`. The template uses `Documents/Site/`. The
 repo's Pages source is **GitHub Actions** deploying that folder, not the
 legacy `main:/docs` setting.
 
@@ -336,9 +336,9 @@ and delete, and the guard that refuses, live there and are exercised by
 UIKit-only stays behind `canImport(UIKit)` so the package still builds on macOS.
 
 There is deliberately **no CLI target** in Fila and a deliberate one in iGhostVT
-and CocoaInspector: a CLI is a second client of the same daemon. A CLI that
+and Inspector: a CLI is a second client of the same daemon. A CLI that
 must run below iOS 15 embeds `libswift_Concurrency.dylib` next to itself
-(CocoaInspector: `usr/lib/cocoainspector/`); the daemon stays free of
+(Inspector: `usr/lib/inspector/`); the daemon stays free of
 `async`/`await`.
 
 ## Build & verify
@@ -352,7 +352,7 @@ The Makefile targets, in the order you will need them:
 | `make build` | unsigned app + daemon for iPhoneOS (runs `check` and `harness` first). |
 | `make sim` | Debug onto the booted simulator. There is **no LaunchDaemon** there and there cannot be — `launchd_sim` prefixes every job's program path with the sealed runtime root — so the simulator exercises the unprivileged backend and everything visual. Irisin is the exception: it runs the installer in-process against a directory of its own. Do not fake a daemon in the app to "fix" the simulator. |
 | `make deb` / `make deb-all` | package for `FLAVOR` (roothide default, `iphoneos-arm64e`, rootful paths; `FLAVOR=rootless` packages the same binaries under `/var/jb` as `iphoneos-arm64`), ad-hoc sign with ldid, then verify the archive. |
-| `make tipa` / `make ipa` | Fila only: the app alone, with and without jailbreak entitlements. iGhostVT, CocoaInspector and Irisin do not ship these targets — do not invent them after copying those Makefiles. |
+| `make tipa` / `make ipa` | Fila only: the app alone, with and without jailbreak entitlements. iGhostVT, Inspector and Irisin do not ship these targets — do not invent them after copying those Makefiles. |
 | `make install` | build for `FLAVOR` and update an existing installation over `iproxy`. First installation still goes through the device's package installer. Confirm the payload *and* the launch: a locked iPad can accept an installation while refusing to open the app. |
 | `make vphone` | incremental Debug build, then serve one `.deb` over HTTP to the VM. No SSH, no VM restart. |
 | `make bump-build` | Fila-style: `CURRENT_PROJECT_VERSION += 1` in `Configuration/Version.xcconfig`. Not used by Irisin (see contract). |
@@ -401,7 +401,7 @@ you copied already uses; do not mix them.
   any Localizable catalogue, `String.LocalizationValue("…")` at a package API
   (AlertController), compiler `.stringsdata` diff in `make check`. A prune
   script that writes `extractionState: manual` would fail Fila's checker.
-- **Irisin / CocoaInspector:** keys Xcode cannot see (a `LocalizationValue`
+- **Irisin / Inspector:** keys Xcode cannot see (a `LocalizationValue`
   handed to another module; Inspector's iOS 13 `String(localized:)` shim) stay
   `"extractionState": "manual"`. `scripts/prune-xcstrings.py <catalog>
   <source roots…>` turns a stale key still quoted in a Swift file into
@@ -424,7 +424,7 @@ MIT, BSD and Apache all make the same demand of a binary distribution: the
 notice travels with it. A deb is a binary distribution. An app with SwiftPM
 dependencies and no Licenses screen is out of compliance the day it ships, and
 a hand-kept list is out of date the day a pin moves. Three of the four
-siblings ship this; CocoaInspector links nothing third-party and has none.
+siblings ship this; Inspector links nothing third-party and has none.
 A new app gets it **in the scaffold, before the first dependency is added** —
 not as a release chore.
 
@@ -510,7 +510,7 @@ expecting only the direct dependencies should not "fix" the longer list.
 3. Commit, push, tag `vX.Y.Z`. **Every published package comes out of the
    sibling's Release workflow** (copy `.github/workflows/release.yml` from
    the same repo you copied `Scripts/` from, then delete product-only jobs).
-   CocoaInspector names that file `ci.yml`; normalize the copied workflow name
+   Inspector names that file `ci.yml`; normalize the copied workflow name
    to `Release` so the template Pages workflow observes its completion.
    The app template ships Pages only. Local `make deb` exists to prove the
    build and to `make install` on a device.
@@ -550,7 +550,7 @@ expecting only the direct dependencies should not "fix" the longer list.
 
 Irisin is the first of the apps on `SWIFT_VERSION = 6.0` for every target
 with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` on the app; Fila, iGhostVT
-and CocoaInspector are still Swift 5 mode. What held up under it, and what
+and Inspector are still Swift 5 mode. What held up under it, and what
 did not:
 
 - **State lives on the main actor; work that takes time runs on a copy.** The
@@ -689,18 +689,18 @@ Copy those from the sibling whose daemon shape you picked, then rename.
 cp -R <this skill>/template/ <repo>/ && cd <repo>
 # Pick one. Irisin lives at github.com/Lakr233/Irisin, not owngoal-dev/Irisin.
 # fd / on-demand:     cp -R ../Fila/Scripts ../Fila/Makefile .
-# smallest on-demand: cp -R ../CocoaInspector/Scripts ../CocoaInspector/Makefile .
+# smallest on-demand: cp -R ../Inspector/Scripts ../Inspector/Makefile .
 # session host:       cp -R ../iGhostVT/Scripts ../iGhostVT/Makefile .
 # helper-per-job:     cp -R <path-to-Lakr233/Irisin>/Scripts <path-to-Lakr233/Irisin>/Makefile .
 # Copy the release workflow that matches the chosen build scripts:
 # Fila / iGhostVT / Irisin: .github/workflows/release.yml
-# CocoaInspector:         .github/workflows/ci.yml
+# Inspector:         .github/workflows/ci.yml
 cp <sibling>/.github/workflows/<release.yml-or-ci.yml> .github/workflows/release.yml
-# Licenses: CocoaInspector has no collector, so its Scripts/ brings none. Take
+# Licenses: Inspector has no collector, so its Scripts/ brings none. Take
 # Irisin's (scanned) or Fila's (reviewed) collector, the matching screen, the
 # build phase, and the make check / verify-deb gates — see "Licenses".
 # cp <Irisin>/Scripts/collect-licenses.py Scripts/ && chmod +x Scripts/collect-licenses.py
-# UI and string gates: CocoaInspector's Scripts/ brings neither. An app on
+# UI and string gates: Inspector's Scripts/ brings neither. An app on
 # SnapKit / AlertController takes Fila's check-ui-libraries.sh and
 # check-localization.sh, cut down to its own roots, and wires both into
 # `make check` on day one — run them once straight away: copied code that
@@ -729,7 +729,7 @@ grep -rniE 'fila|ighostvt|inspector|irisin|chromatic|saily' \
 
 **The rename is finished when that sweep is empty, not when the build is
 green.** A leftover sibling name builds and packages without complaint. Where
-they were found while scaffolding Xrash from CocoaInspector, all outside
+they were found while scaffolding Xrash from Inspector, all outside
 anything a compiler reads: `DERIVED_DATA ?= /private/tmp/inspector-deriveddata`
 (two apps then share one derived-data folder and cross-contaminate — the
 false-green case from *Build & verify*), `mktemp` prefixes in every script,
@@ -738,13 +738,13 @@ the `<sibling>-harness` temp names, the workflow `concurrency.group`,
 package id handed to `verify-deb.sh` in the workflow, and the `usage:` /
 header comments of copied scripts. Rewrite the Makefile and the packager in one
 pass rather than patching lines as they fail: a copied packager also carries
-the sibling's *shape* (CocoaInspector's takes a CLI binary, its entitlements
+the sibling's *shape* (Inspector's takes a CLI binary, its entitlements
 and a back-deployed `libswift_Concurrency.dylib` for an iOS 13 floor), and
 argument counts, payload lists and entitlement loops all have to change
 together.
 
 Copy the sibling's `.gitignore` too, then make sure it ignores `.build/` and
-`.swiftpm/`: CocoaInspector has no local package, so its file does not, and the
+`.swiftpm/`: Inspector has no local package, so its file does not, and the
 first `git add -A` after `make harness` stages the whole SwiftPM build folder.
 Read `git status --short` before the first commit; the scaffold is about fifty
 files, not hundreds.
