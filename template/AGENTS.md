@@ -146,6 +146,16 @@ it succeeds. Deploy from `main`, including when an older release is edited.
 Keep the `uikittools` dependency: its triggers register and unregister the app.
 Maintainer hooks manage the daemon only; never add explicit `uicache` calls.
 
+That trigger is `uicache -a`, which registers only what is not registered yet.
+A package manager re-registers an upgrade itself; a bare `dpkg -i` over an
+installed copy does not, and LaunchServices keeps the previous build's
+Info.plist — version, document types, URL schemes, every key SpringBoard reads
+from the record rather than from disk. After installing by hand, run
+`uicache -p <prefix>/Applications/<App>.app` in the terminal, and respring if
+SpringBoard has to read it again. When a plist or entitlement change "does not
+take", check the record's `CFBundleVersion` against the bundle's before
+anything else.
+
 ## Where things get tested
 
 The Mac harness first, the simulator for the visuals, a vphone or a jailbroken
