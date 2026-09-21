@@ -21,6 +21,12 @@
 	not "this client". If it is unused on the app, drop it from the app *and*
 	from the authenticator together.
 
+	The two storage entitlements are what let the app read other apps' bundles
+	and data containers (icons, Info.plist, documents): `no-sandbox` alone does
+	not open them on every platform. Keep them on the app *and* on the daemon
+	if either one looks there; drop both from an app that has no business
+	there.
+
 	Add `com.apple.security.iokit-user-client-class` only if the app draws with
 	Metal itself (a terminal, an emulator, a renderer). A bootstrap withholds
 	the GPU from an ad-hoc signed binary until this entitlement names the
@@ -49,6 +55,10 @@
 		<string>@SERVICE_NAME@</string>
 	</array>
 	<key>com.apple.private.security.no-sandbox</key>
+	<true/>
+	<key>com.apple.private.security.storage.AppBundles</key>
+	<true/>
+	<key>com.apple.private.security.storage.AppDataContainers</key>
 	<true/>
 	<key>platform-application</key>
 	<true/>

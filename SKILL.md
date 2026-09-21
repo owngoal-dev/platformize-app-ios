@@ -75,6 +75,15 @@ self-updating installer into the daemon.
 
 ## The contract (do not bend these)
 
+- **The checklist comes before the code.** `template/CHECKLIST.md` is every
+  one-time decision below as a box, and a new repo works through it first:
+  no code is written until every box is ticked and `make check` passes
+  `Scripts/check-checklist.sh`, which runs before anything else and lists
+  what is still open. A box is ticked after the thing is done or decided,
+  never to get past the gate; one that does not apply is ticked with the
+  reason beside it. Each of these decisions is an edit on day one and a
+  migration after the first release. A missing file and a file with no
+  items fail too, so deleting the list is not finishing it.
 - **One app, several wrappers, and the backend is resolved at runtime, never at
   build time.** The same binary runs under roothide, under rootless, from
   TrollStore and from a sideload. Never add a build flag, a compilation
@@ -121,6 +130,20 @@ self-updating installer into the daemon.
   `otool -L` fails on `libvroot`. Do not `symredirect` one side of a
   Foundation/XPC boundary. libroot's path spelling is not bootstrap identity
   (`/var/jb` may be what it returns on roothide).
+- **roothide is recognised by the process's own path, never by a library
+  that may not load.** What the app must know before `hello` answers (which
+  bootstrap it is on, to refuse a package built for the other) comes from
+  `template/Shared/RoothideRoot.swift`: a path component that passes
+  libroothide's own `is_jbroot_name` (`.jbroot-`, sixteen hex digits, the
+  last byte the xor of the seven before it) is the root, which is how
+  libroothide's `init.c` finds it. Do not `dlopen`
+  `<bundle>/.jbroot/usr/lib/libroothide.dylib` to decide: that link is made
+  by roothide's dpkg hook or when the jailbreak loads a binary and is not
+  promised, roothide ships no `libroot.dylib`, and a `("/var/jb", rootless)`
+  fallback then calls a roothide device rootless. Irisin 4.3.6 refused to
+  start on iOS 16.1 roothide exactly so. A looser `hasPrefix(".jbroot")`
+  takes the `.jbroot` link itself for a bootstrap; keep the checksum.
+  `tests/test_roothide_root.py` compiles the file and runs the names.
 - **An app replaced or removed while it runs says so** — unless this package *is* the
   installer of itself. dpkg renames each new file over the old one.
   `template/App/ExecutableWatch.swift` holds the launched executable with
@@ -130,6 +153,12 @@ self-updating installer into the daemon.
   hard link delays notification until cleanup; rollback keeps the old inode
   linked and must not notify. The app asks *Later* or *Quit*, using wording
   that covers both update and removal (the watch does not distinguish them).
+  **Quit never calls `exit` from the foreground**: a screen that vanishes
+  reads as a crash. `template/App/QuietExit.swift` leaves for the home screen
+  (`suspend`, under a background task so iOS does not freeze the old copy
+  first), waits for that animation, runs the cleanup `exit` would skip, and
+  exits. Every exit the app chooses goes through `QuietExit.run`; a
+  self-updating installer ends the same way once its transcript is done.
   Copy the file unchanged; start it once, early in `didFinishLaunching`.
   It watches the inode opened at startup: changes before that open, in-place
   writes, and moves that retain a hard link are outside this guard.
@@ -191,6 +220,25 @@ self-updating installer into the daemon.
   (and friends) needs `com.apple.private.security.storage.<Class>` on *that*
   process. Fila's `Filad.entitlements` is the list; copy it onto a file-manager
   daemon or an install helper, not onto a sampler.
+- **`no-sandbox` does not open another app's bundle or container.** An app
+  that reads other apps' bundles or data containers (icons, `Info.plist`,
+  documents) carries `com.apple.private.security.storage.AppBundles` and
+  `com.apple.private.security.storage.AppDataContainers` beside
+  `no-sandbox`, on the app *and* on the daemon: `no-sandbox` alone does not
+  open them on every platform.
+  Both template entitlement files ship the pair; delete it from a process
+  that has no business there.
+- **The app icon is never looked up by name.** An icon made in Icon Composer
+  (`AppIcon.icon`) compiles to a catalogue where the name `AppIcon` is an
+  image stack with no bitmap, and on iOS 26 `UIImage(named: "AppIcon")`
+  does not return nil: UIKit asserts in `-[_UIImageCGImageContent
+  initWithCGImageSource:CGImage:scale:]` and the app aborts. Xrash 0.2.0
+  crashed exactly so while drawing a report's PDF cover. Every in-app use of
+  the icon (alerts, covers, About) draws an ordinary image set; the siblings
+  call it `AppIconMark`. For *another* app's icon, ask IconServices first;
+  the loose-file fallback reads the `CFBundleIconFiles` names as PNG files in
+  the bundle directory with `UIImage(contentsOfFile:)`, never
+  `UIImage(named:in:)` with a name out of someone else's `Info.plist`.
 - **No absolute build path in a shipped binary.** `#file` is concise
   (`SWIFT_UPCOMING_FEATURE_CONCISE_MAGIC_FILE`); `-file-prefix-map` /
   `-ffile-prefix-map` are in `template/Configuration/Base.xcconfig`. A
@@ -384,6 +432,27 @@ and the raw log is gone once the script exits.
    iOS 15.
 
 Report what actually ran.
+
+## A crash is read before anything is changed
+
+A crash is diagnosed from the symbolicated report, not from a guess. A wrong
+one ("missing entitlement") cost a rebuild; the symbolicated stack named the line in one command.
+
+Keep the dSYM of every build installed on a device, until that build is gone
+from it: `$DERIVED_DATA/Build/Products/Release-iphoneos/<App>.app.dSYM` (and
+the daemon's beside it). A `make clean` or the next build overwrites it, so
+copy it out if the build stays on the device. A published build's are in the
+release (see *Publishing*). Match by the report's image UUID, then symbolicate
+the frame's image offset:
+
+```sh
+dwarfdump --uuid <App>.app.dSYM          # must equal the report's image uuid
+atos -o <App>.app.dSYM/Contents/Resources/DWARF/<App> -l 0x100000000 \
+    <0x100000000 + imageOffset>
+```
+
+A UUID that does not match is another build's dSYM and symbolicates to
+confident nonsense. Only then change something.
 
 ## Localization is verified against the compiler, never against a grep
 
@@ -676,8 +745,11 @@ from the resolution:
 ## Template
 
 `template/` holds only the parts that are the same in every app repo and that
-you cannot get by reading a sibling: the packaging inputs, the xcconfigs, the
-XPC constant shim, the app's update watch, the scene-restoration reset
+you cannot get by reading a sibling: the one-time checklist (`CHECKLIST.md`),
+the packaging inputs, the xcconfigs, the
+XPC constant shim, the roothide root check (`Shared/RoothideRoot.swift`),
+the app's update watch and its quiet exit
+(`App/QuietExit.swift`), the scene-restoration reset
 (`App/main.swift`, `App/SceneRestorationReset.swift`), the Pages workflow and
 Site stub, and an `AGENTS.md` skeleton. **The build scripts are not here on
 purpose** — `package-deb.sh`, `verify-deb.sh`, the ipa pair,
@@ -705,8 +777,13 @@ cp <sibling>/.github/workflows/<release.yml-or-ci.yml> .github/workflows/release
 # check-localization.sh, cut down to its own roots, and wires both into
 # `make check` on day one — run them once straight away: copied code that
 # still presents a UIAlertController fails the first of them.
-# The two release gates travel with the repo; they name no sibling.
-cp <this skill>/scripts/audit-ios-floor.sh <this skill>/scripts/check-symbol-availability.py Scripts/
+# The two release gates and the checklist gate travel with the repo; they
+# name no sibling.
+cp <this skill>/scripts/audit-ios-floor.sh <this skill>/scripts/check-symbol-availability.py \
+    <this skill>/scripts/check-checklist.sh Scripts/
+chmod +x Scripts/check-checklist.sh
+# Wire the checklist gate into the copied Makefile now (lines below), then
+# work through CHECKLIST.md before writing any code.
 # Set its workflow name to Release, then remove only product-only jobs.
 # Keep macos-26, Xcode selection, signing, verification, and all required assets.
 mv Packaging/APP.entitlements    "Packaging/<App>.entitlements"
@@ -719,6 +796,7 @@ mv App/main.swift "<App>/"
 mv App/SceneRestorationReset.swift "<App>/Application/"
 # skip ExecutableWatch only for a self-updating installer (the helper owns the replace):
 mv App/ExecutableWatch.swift "<App>/Application/"
+mv App/QuietExit.swift "<App>/Application/"
 rmdir App
 grep -rn '@[A-Z_]*@' --exclude-dir=.git .         # every hit is a decision
 # The sibling's name, swept over the whole repo — not just Makefile/Scripts.
@@ -726,6 +804,26 @@ grep -rn '@[A-Z_]*@' --exclude-dir=.git .         # every hit is a decision
 grep -rniE 'fila|ighostvt|inspector|irisin|chromatic|saily' \
     --exclude-dir=.git --exclude=AGENTS.md .
 ```
+
+**The checklist gate goes into the copied Makefile before anything else.**
+`make check` must run `Scripts/check-checklist.sh` first, and every target
+that builds (`build`, `compile`, `deb`, `install`) already depends on `check`
+in the siblings. `harness`, `sim` and `vphone` do not everywhere (Fila's
+`build` runs `harness` before `check`), so they get the prerequisite too. Add
+these lines *above* the `check:` rule, so the gate is its first prerequisite,
+and add `checklist` to `.PHONY`:
+
+```make
+checklist:
+	@Scripts/check-checklist.sh CHECKLIST.md
+
+check harness sim vphone: checklist
+```
+
+Drop from that last line any target the copied Makefile does not have. Then
+work through `CHECKLIST.md`, top to bottom, ticking each box only after the
+thing is done or decided. `CHECKLIST.md` stays in the repo, ticked, and the
+gate stays in `check`: the file is the record of what was decided.
 
 **The rename is finished when that sweep is empty, not when the build is
 green.** A leftover sibling name builds and packages without complaint. Where
@@ -793,7 +891,10 @@ shares a container, and only if the packager substitutes `$(APP_GROUP_IDENTIFIER
 `scripts/check-symbol-availability.py <floor> <source roots…>` are the two
 release gates from the floor section; wire both into `make check` (the symbol
 one) and the release path (the floor one, over the built `.app`, the daemon and
-every helper). `scripts/prune-xcstrings.py` is the Irisin/Inspector catalogue
+every helper). `scripts/check-checklist.sh [<file>]` is the checklist gate
+above: POSIX sh, exit 0 with one line when every item is `- [x]`, 65 listing
+each `- [ ]` (or on a file with no items), 66 when the file is missing.
+`scripts/prune-xcstrings.py` is the Irisin/Inspector catalogue
 tidy; Fila's checker is in Fila's `Scripts/` — copy the one that matches.
 
 ### Native Depiction

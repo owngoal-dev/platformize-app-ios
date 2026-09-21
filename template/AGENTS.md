@@ -20,6 +20,13 @@ helper-per-job: the daemon starts one helper for one closed job.>
 
 ## Hard rules
 
+- **The checklist comes before the code.** `CHECKLIST.md` is every one-time
+  decision this repo has to make. No code is written until every box is
+  ticked and `make check` passes `Scripts/check-checklist.sh`, which runs
+  first and lists what is still open. An agent starting here works through
+  it top to bottom and ticks a box only after doing or deciding the thing;
+  one that does not apply is ticked with the reason beside it. The file
+  stays, ticked: it is the record of what was decided.
 - **One app, several wrappers, and the backend is resolved at runtime.** Never a
   build flag, never a compilation condition, never a per-packaging source
   variant. The handshake with the daemon is the only honest answer to "am I
@@ -38,6 +45,11 @@ helper-per-job: the daemon starts one helper for one closed job.>
 - **No install prefix is written in Swift.** Derive it from the daemon's own
   `proc_pidpath`; anything that needs it asks the daemon. Packaging fails on
   `libvroot` in the app, daemon or helper.
+- **roothide is recognised by the process's own path** (`RoothideRoot`,
+  libroothide's own name rule), never by loading libroothide through the
+  `.jbroot` link, which is not promised, and never by falling back to
+  "`/var/jb`, so rootless". The daemon's `hello` stays the authority on the
+  install root.
 - **Every path is canonicalised before a decision is made about it.**
   `realpath(3)` first, then compare components; reject an embedded NUL first.
 - **Start `ExecutableWatch` once, early in `didFinishLaunching`.** When the
@@ -46,12 +58,30 @@ helper-per-job: the daemon starts one helper for one closed job.>
   cancellation guard; the callback runs once on the main queue. Do not watch
   daemons: postinst restarts them after unpacking finishes. Omit this watch
   for a self-updating installer whose helper owns completion and exit.
+- **The app never calls `exit` from the foreground.** A screen that vanishes
+  reads as a crash. Quit, and any other exit the app chooses, is
+  `QuietExit.run`: leave for the home screen, wait for the animation, run the
+  cleanup `exit` would skip, then exit.
 - **A cold launch starts with no saved scenes.** `main.swift` deletes this
   bundle's `Library/Saved Application State/<id>.savedState` before
   `UIApplicationMain`. UIKit reads that archive before any scene delegate
   runs; leftover sessions from a previous UI framework or Info.plist restore
   the old delegate. Background resumes do not run `main`. Preferences stay.
   The app delegate is not `@main`.
+- **The app icon is never looked up by name.** An Icon Composer icon leaves
+  `AppIcon` in the catalogue as an image stack with no bitmap, and on iOS 26
+  `UIImage(named: "AppIcon")` aborts inside UIKit rather than returning nil.
+  In-app uses draw the `AppIconMark` image set. Another app's icon comes
+  from IconServices, then from its `CFBundleIconFiles` names read as files
+  with `UIImage(contentsOfFile:)`, never `UIImage(named:in:)`.
+- **Reading another app's bundle or container takes
+  `com.apple.private.security.storage.AppBundles` and `.AppDataContainers`
+  beside `no-sandbox`**, on the app and on the daemon; `no-sandbox` alone
+  does not open them on every platform.
+- **A crash is read before anything is changed.** Keep the dSYM of every
+  build installed on a device, match it to the report's image UUID
+  (`dwarfdump --uuid`), and symbolicate with `atos -o <dSYM DWARF> -l
+  0x100000000 <0x100000000 + imageOffset>` before guessing at a cause.
 - **Versions and the deployment target live in `Configuration/*.xcconfig`
   only.** `make check` rejects either in `project.pbxproj`.
 - **No project generators.** `project.pbxproj` is hand-written; `objectVersion`
