@@ -184,6 +184,59 @@ self-updating installer into the daemon.
   `UISceneSession.persistentIdentifier` (Fila's per-window tab lists): if
   the reset orphans that state on every cold launch, the app keeps its
   `@main` and says why in its notes.
+- **A control with no text has no name.** An icon-only `UIButton`, a
+  `UIBarButtonItem(image:)`, a full-bleed menu button and an invisible button
+  laid over a row all announce as a bare "button", or as the SF Symbol's own
+  identifier. Every one of the five apps shipped with a screenful of them.
+  Give each an `accessibilityLabel`; the trait already says "button", so the
+  word does not belong in the label. A label that goes stale is worse than
+  none — Inspector's live-updates button said *Pause Live Updates* while
+  paused, because the label was set once at construction rather than beside
+  the state it describes.
+  **A label on a container that is not an accessibility element is never
+  read.** UIKit takes `accessibilityLabel` off a view only when that view is
+  an element, and a `UIView`, `UITableViewCell` or `UICollectionViewCell`
+  with subviews is not one by default: VoiceOver walks past the assembled
+  sentence and reads the subviews instead, one stop each, with the drawn
+  separators (`·`, `|`) spoken. Fila's `BrowserGridCell` and `BackendRowCell`
+  had each built that sentence in `configure(_:)` and neither set
+  `isAccessibilityElement`; nothing warned, and a sighted read of the screen
+  cannot show it. `scripts/check-accessibility.py` is the gate — it resolves
+  superclasses and extensions across the source roots, so a base class that
+  sets the flag covers its subclasses — and it belongs in `make check` on day
+  one. A row that composes several labels sets the flag, takes the joined
+  line as its label, and puts the figure that changes in `accessibilityValue`
+  so a live sample re-announces the number without repeating the name.
+  **Becoming an element hides the subviews**, so a row that owns a button —
+  a menu accessory, a disclosure, a checkbox — swallows it the moment the
+  flag goes on, and the gate will happily push you there. That row keeps its
+  children reachable with an `accessibilityCustomAction` per control, or
+  leaves the flag off and labels the subviews instead. Decide which before
+  setting the flag: Fila's `IconRowCell` is still open for exactly this
+  reason, and Xrash's `FrameCell` acquired an unreachable label by copying
+  `BundleReportCell`, which had been unreachable since it was written. A
+  broken precedent in the same file is how this spreads.
+  **State that is only drawn is not spoken**: a checkmark, a tick, a
+  selected card, a progress fill, "already added". Put it in
+  `accessibilityValue` or a trait (`.selected`, `.isHeader`), not in prose.
+  **A label that repeats what is already read is a regression, not a fix.**
+  A `UIListContentConfiguration` row already reads "title, value"; a
+  `UISwitch` already supplies its own on/off; a titled `UIAction` or `UIMenu`
+  is already named. Ten such overrides were written and reverted across the
+  five apps in one pass — each one would have doubled an announcement and
+  then drifted from the drawn text.
+  **Accessibility is semantics, never behaviour.** A
+  `UIAccessibility.post(.layoutChanged)` on a routine view swap steals focus
+  — on Inspector's live-sampling screens it would have done so on every
+  sample — and a custom action that duplicates a row's context menu doubles
+  the rotor. Post an announcement for an event the user cannot see, and
+  nothing else.
+  **Labels are user-facing text** and follow the catalogue discipline below
+  like any other string: a `String.LocalizationValue` spelled out in English,
+  reused from an existing key wherever the control already draws one. A new
+  key is a translation in every shipped language, so derive the label from
+  the text the view already displays before inventing one — a whole app's
+  pass can land with no new keys at all.
 - **Every path is canonicalised before a decision is made about it.**
   `realpath(3)` first, then compare components; reject an embedded NUL first.
 - **Versions and the deployment target live in `Configuration/*.xcconfig`

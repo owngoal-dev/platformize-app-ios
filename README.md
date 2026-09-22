@@ -13,7 +13,8 @@ For command-line tools, see [platformize-bin-ios](https://github.com/owngoal-dev
   loads release notes from GitHub, an fd-based executable watcher for updates
   and removal, a quiet exit, and the roothide root check.
 - `scripts/`: the checklist gate for `make check`, deployment compatibility
-  and SF Symbol checks, plus localization cleanup.
+  and SF Symbol checks, an accessibility gate that refuses a label UIKit will
+  never read, plus localization cleanup.
 
 ## Get Started
 

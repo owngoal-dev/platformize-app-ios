@@ -74,6 +74,36 @@ helper-per-job: the daemon starts one helper for one closed job.>
   In-app uses draw the `AppIconMark` image set. Another app's icon comes
   from IconServices, then from its `CFBundleIconFiles` names read as files
   with `UIImage(contentsOfFile:)`, never `UIImage(named:in:)`.
+- **A control with no text has no name.** Every icon-only button, bar button
+  item and invisible button over a row gets an `accessibilityLabel` when it
+  is written, not in a pass afterwards. The trait already says "button".
+  Set the label beside the state it describes, or it goes stale: a
+  pause/resume button labelled once at construction lies for half its life.
+- **A label on a container UIKit does not treat as an element is never
+  read.** A `UIView`, `UITableViewCell` or `UICollectionViewCell` with
+  subviews is not an accessibility element, so the sentence `configure`
+  assembles is walked past and the subviews are read instead, one stop each,
+  with the drawn separators spoken. Set `isAccessibilityElement = true` on
+  any cell or view that labels itself; `make check` runs
+  `Scripts/check-accessibility.py`, which fails on a label that nothing can
+  reach. A row that joins several labels puts the figure that changes in
+  `accessibilityValue`, so a live sample re-announces the number without
+  repeating the name. Setting the flag hides the subviews, so a row that
+  owns a button — menu accessory, disclosure, checkbox — gives each one an
+  `accessibilityCustomAction` or keeps the flag off and labels the subviews
+  instead. Decide which before setting it; do not copy the neighbouring
+  cell, which may be unreachable itself.
+- **State that is only drawn is not spoken.** A checkmark, a tick, a
+  selected card, a progress fill: `accessibilityValue` or a trait
+  (`.selected`, `.isHeader`), never prose bolted onto the label. And a label
+  that repeats what VoiceOver already reads is a regression — a
+  `UIListContentConfiguration` row reads "title, value" already, a `UISwitch`
+  supplies its own on/off, and a titled `UIAction` is already named.
+- **Accessibility is semantics, never behaviour.** No
+  `UIAccessibility.post(.layoutChanged)` on a routine view swap: it steals
+  focus, and on a live-sampling screen it does so on every sample. No custom
+  action that duplicates one the rotor already offers. Announce an event the
+  user cannot see; nothing else.
 - **Reading another app's bundle or container takes
   `com.apple.private.security.storage.AppBundles` and `.AppDataContainers`
   beside `no-sandbox`**, on the app and on the daemon; `no-sandbox` alone

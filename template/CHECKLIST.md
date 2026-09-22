@@ -81,6 +81,15 @@ platformize-app-ios's; the quoted name is its section.
 - [ ] The root is a real tab bar for more than three top-level pages and a single navigation stack for three or fewer, never a `UITabBarController` with its bar hidden.
       SKILL.md "Gotchas observed across the apps".
 
+## Accessibility
+
+- [ ] `Scripts/check-accessibility.py` is copied in and wired into `make check`, so a label on a cell or view that UIKit will never read fails the build.
+      SKILL.md "The contract": a label on a container that is not an accessibility element is never read.
+- [ ] Every icon-only button and bar button item is labelled as it is written, the label is set beside the state it describes rather than once at construction, and no label repeats what VoiceOver already reads.
+      SKILL.md "The contract": a control with no text has no name.
+- [ ] State that is only drawn — a checkmark, a selection, a progress fill — is an `accessibilityValue` or a trait, and nothing posts `.layoutChanged` on a routine view swap.
+      SKILL.md "The contract": state that is only drawn is not spoken; accessibility is semantics, never behaviour.
+
 ## Assets and icons
 
 - [ ] The app icon is never looked up by name: every in-app use draws an ordinary image set, `AppIconMark`, and no source says `UIImage(named: "AppIcon")`.
