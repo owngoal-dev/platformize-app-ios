@@ -103,6 +103,10 @@ platformize-app-ios's; the quoted name is its section.
 
 - [ ] One catalogue discipline is chosen (compiler `.stringsdata` with no `extractionState`, or `manual` keys pruned by hand) and its gate is in `make check`.
       SKILL.md "Localization is verified against the compiler".
+- [ ] `Scripts/check-stale-strings.py` is copied in and wired into `make check`, so a key Xcode reaped during a build cannot ride into a commit unseen.
+      SKILL.md "Localization is verified against the compiler": nothing else catches the marker.
+- [ ] Every target's source root is written down for `prune-xcstrings.py` — app, extensions, macOS, visionOS, packages — and `--delete-orphans` is used only if this app has one target.
+      SKILL.md: stale does not mean dead; a missing root deletes live strings and their translations.
 - [ ] One licence discipline is chosen (scanned or reviewed), and the collector, the Collect Licenses build phase, the screen and both gates are in before the first dependency.
       SKILL.md "Licenses are collected by the build".
 - [ ] `LICENSE` names the right holder and year, and every dependency's licence is read before its API: no GPL, no LGPL.

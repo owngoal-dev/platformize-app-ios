@@ -526,9 +526,28 @@ you copied already uses; do not mix them.
 - **Irisin / Inspector:** keys Xcode cannot see (a `LocalizationValue`
   handed to another module; Inspector's iOS 13 `String(localized:)` shim) stay
   `"extractionState": "manual"`. `scripts/prune-xcstrings.py <catalog>
-  <source roots…>` turns a stale key still quoted in a Swift file into
-  `manual` and removes the rest. Run it by hand with Xcode closed, never from
-  `make check`, because it writes.
+  <source roots…>` turns a stale key still quoted in a source file into
+  `manual`. Run it by hand with Xcode closed, never from `make check`, because
+  it writes.
+
+Either way, `scripts/check-stale-strings.py <roots…>` belongs in `make check`.
+It refuses `extractionState: stale` and says nothing about `manual`, so it
+suits both disciplines. Nothing else catches the marker: it appears during an
+ordinary build, lands in the tree of whoever built last, and rides into a
+commit as one green line in a diff of several thousand. That is how the one in
+iGhostVT got in.
+
+**Stale does not mean dead, and a prune must not assume it does.** The
+extractor reports on the target it just built. An app with an iOS target, a
+visionOS target and a macOS target has every macOS-only string marked stale
+after an iOS build, and all of them are live. So is a key reached through
+interpolation, one named in a xib, and one a package builds from a constant.
+So `prune-xcstrings.py` never deletes by default: a stale key found in none of
+the roots becomes `manual` and is printed as an orphan *candidate* for a person
+to read. `--delete-orphans` is the opt-in, and it is only for a single-target
+app whose roots are known to be complete. Pass **every** target's sources —
+a missing root makes its strings look orphaned, and one flag then takes them
+and all thirteen translations out in a single commit.
 
 Blind spots in both: a grep for `String(localized:)` cannot see SwiftUI's bare
 `Text("Grid")`, and cannot see an interpolated key — `"\(count) selected"` is

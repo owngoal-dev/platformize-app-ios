@@ -157,6 +157,18 @@ helper-per-job: the daemon starts one helper for one closed job.>
   `SHOUTING_KEY` identifiers; `make check` greps for both. Pick one catalogue
   discipline and keep it: compiler `.stringsdata` with no `extractionState`,
   or unseen keys kept as `manual` and pruned by hand.
+- **No key Xcode marked stale survives a build.** `make check` runs
+  `Scripts/check-stale-strings.py`, which refuses `extractionState: stale` and
+  ignores `manual`. The marker is written during an ordinary build, into a
+  file too large to read, and otherwise rides into a commit as one green line.
+- **Stale does not mean dead — never bulk-delete a stale key.** The extractor
+  reports on the target it just built, so an iOS build marks every
+  macOS-only and visionOS-only string stale while all of them are live; so is
+  a key reached by interpolation or named in a xib. `Scripts/prune-xcstrings.py`
+  therefore keeps what it cannot find, as `manual`, and prints it as an orphan
+  candidate. Pass every target's sources. `--delete-orphans` is opt-in and is
+  for a single-target app only: with a root missing it takes live strings and
+  all of their translations out in one commit.
 
 ## Layout
 

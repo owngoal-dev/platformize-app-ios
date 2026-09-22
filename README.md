@@ -14,7 +14,8 @@ For command-line tools, see [platformize-bin-ios](https://github.com/owngoal-dev
   and removal, a quiet exit, and the roothide root check.
 - `scripts/`: the checklist gate for `make check`, deployment compatibility
   and SF Symbol checks, an accessibility gate that refuses a label UIKit will
-  never read, plus localization cleanup.
+  never read, a gate that refuses a string key Xcode marked stale, plus
+  localization cleanup that keeps a translation it cannot account for.
 
 ## Get Started
 
