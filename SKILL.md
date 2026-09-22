@@ -629,13 +629,59 @@ expecting only the direct dependencies should not "fix" the longer list.
    / `make ipa`.
 2. A read-through for sensitive information (above). Nothing goes out until it
    comes back clean.
-3. Commit, push, tag `vX.Y.Z`. **Every published package comes out of the
-   sibling's Release workflow** (copy `.github/workflows/release.yml` from
-   the same repo you copied `Scripts/` from, then delete product-only jobs).
-   Inspector names that file `ci.yml`; normalize the copied workflow name
-   to `Release` so the template Pages workflow observes its completion.
-   The app template ships Pages only. Local `make deb` exists to prove the
-   build and to `make install` on a device.
+3. Commit, push, tag `vX.Y.Z`. Local `make deb` exists to prove the build and
+   to `make install` on a device; nothing published comes out of it.
+
+   **CI builds, Release publishes what CI built.** Two workflows, copied as a
+   pair from Irisin, which is the reference shape:
+
+   - `.github/workflows/ci.yml` (`name: CI`) on push to the main branch, on
+     pull requests and on dispatch. One job runs the host tests; beside it,
+     one job per product compiles, packages and verifies, writes
+     `SHA256SUMS` over everything it built, and uploads `build/Packages/` as
+     the artifact `<app>-${{ github.sha }}` with `if-no-files-found: error`
+     and `retention-days: 30`. Nothing is published from here.
+   - `.github/workflows/release.yml` (`name: Release`) on tag
+     `v[0-9]*.[0-9]*.[0-9]*`. **It compiles nothing.** It finds ci.yml's run
+     for the tagged commit — polling, because the tag and the branch usually
+     arrive together and the run may not exist yet — `gh run watch`es it,
+     refuses to publish unless the conclusion is `success`, downloads that
+     artifact, `sha256sum --check`s it, rewrites `SHA256SUMS` for exactly the
+     files the release carries, and publishes.
+
+   What ships is then the file CI verified, not a second build of the same
+   commit: a rebuild at tag time is a different `CURRENT_PROJECT_VERSION`,
+   a different runner image and a different set of bytes from the ones any
+   test ran against. A commit that never reached the main branch has no run,
+   so dispatch CI on the tag (`gh workflow run ci.yml --ref vX.Y.Z`) and
+   re-run Release; that is also the way back once the artifact is past its
+   thirty days.
+
+   **The concurrency keys are not decoration.** CI keys a push on
+   `github.sha` and a pull request on `github.ref`, cancelling only the
+   latter: a push's run must survive however soon the next push follows,
+   because a tag on that commit publishes what that run built. Release keys
+   on `github.ref` with `cancel-in-progress: false`.
+
+   **The workflow must be named `Release`**, because `pages.yml` watches
+   `workflow_run: workflows: [Release]` and refreshes the depiction's
+   changelog after it succeeds. A repo that publishes from `ci.yml` has its
+   Pages refresh fire before the release exists.
+
+   **Publishing is idempotent and never assumes the release is new:**
+
+   ```sh
+   if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+       gh release upload "$GITHUB_REF_NAME" --clobber "${files[@]}"
+       gh release edit "$GITHUB_REF_NAME" --notes-file "$notes"
+   else
+       gh release create "$GITHUB_REF_NAME" --verify-tag \
+           --title "<App> $version" --notes-file "$notes" "${files[@]}"
+   fi
+   ```
+
+   Title the release `<App> <version>`, not the bare tag. `--verify-tag`
+   refuses to create a release for a tag that is not pushed yet.
 
    **The workflow publishes the dSYMs too**, in the run's artifact and on the
    GitHub release, listed in `SHA256SUMS`. A crash report from a shipped
@@ -657,14 +703,54 @@ expecting only the direct dependencies should not "fix" the longer list.
    it so no existing glob catches it: a merge job that counts `*.zip` or
    a checksum step over `*.deb` needs the dSYM zip added by name. The APT
    fetcher picks `.deb` assets by architecture and ignores the rest.
-4. Enable Pages as **GitHub Actions** (not the legacy `/docs` folder). The
+4. **The release notes are a file in the repo, written before the tag.**
+   `<docs>/Releases/<version>.md` — `Documentation/Releases/` in Irisin and
+   Fila, `Documents/Releases/` in the repos whose prose folder is
+   `Documents/`. The publish step copies it when it exists and falls back to
+   a short generated blurb when it does not, so a release never goes out
+   bare; the fallback is the exception, not the plan.
+
+   The shape, which every app follows:
+
+   ```markdown
+   Irisin 4.3.7 starts on RootHide devices that 4.3.6 turned away.
+
+   - On some RootHide devices Irisin stopped at launch with Unsupported
+     Architecture, saying the package was built for `iphoneos-arm64e` while
+     the firmware used `iphoneos-arm64`, although the right package was
+     installed. Irisin now recognises RootHide from where it is installed
+     and no longer depends on a link the system may not have made.
+
+   Choose `iphoneos-arm64e` for RootHide or `iphoneos-arm64` for rootless
+   firmware. SHA-256 checksums are included in `SHA256SUMS`.
+   ```
+
+   - **One headline sentence**: `<App> <version>` and what this release does,
+     naming its two or three real changes. Not "bug fixes and improvements".
+   - **One bullet per user-visible change**, in the user's words and present
+     tense. A fix leads with the symptom the user saw, then what changed —
+     they recognise the symptom, not the cause. A release with nothing
+     user-visible says so plainly: *"Runestone 0.3.2 … Nothing in the app
+     changed."*
+   - **A closing line**: which package to choose, any platform caveat that is
+     genuinely load-bearing (Xrash's `xattr -dr com.apple.quarantine` for the
+     ad-hoc-signed Mac app), and `SHA256SUMS`.
+   - **Never** a commit sha, an internal type name, a `refactor:`/`chore:`
+     subject, or a bare compare link. `--generate-notes` produces exactly the
+     last of those and is not a release note: it tells a user who already
+     reads the repository what they could have read anyway, and everyone else
+     nothing. A package table with an install command documents *installing*,
+     never *what changed*; keep it to the closing line and spend the body on
+     the changes.
+
+5. Enable Pages as **GitHub Actions** (not the legacy `/docs` folder). The
    workflow deploys `Documents/Site/` (`index.html`, `icon.png`, and
    `depiction.json` at Site root). Prepare the native depiction as described
    below. Before the first stable release, the updater leaves the Details-only
    page intact. Point `manifest.json`'s icon at
    `https://owngoal-dev.github.io/<repo>/icon.png`. The APT verify is
    CDN-delayed (`max-age` 600 s).
-5. Add the repo to `owngoal-packages`' `manifest.json` (`repository` +
+6. Add the repo to `owngoal-packages`' `manifest.json` (`repository` +
    `architectures`) *after* the release exists — the APT build fails on a
    manifest entry with no release — and watch its run go green.
 
@@ -817,10 +903,17 @@ cp -R <this skill>/template/ <repo>/ && cd <repo>
 # smallest on-demand: cp -R ../Inspector/Scripts ../Inspector/Makefile .
 # session host:       cp -R ../iGhostVT/Scripts ../iGhostVT/Makefile .
 # helper-per-job:     cp -R <path-to-Lakr233/Irisin>/Scripts <path-to-Lakr233/Irisin>/Makefile .
-# Copy the release workflow that matches the chosen build scripts:
-# Fila / iGhostVT / Irisin: .github/workflows/release.yml
-# Inspector:         .github/workflows/ci.yml
-cp <sibling>/.github/workflows/<release.yml-or-ci.yml> .github/workflows/release.yml
+# Copy the CI/Release PAIR — they only work together. Irisin is the reference
+# shape: ci.yml builds and keeps the artifact, release.yml publishes the
+# artifact ci.yml already verified and compiles nothing. See "Publishing".
+cp <Irisin>/.github/workflows/ci.yml <Irisin>/.github/workflows/release.yml .github/workflows/
+# Then swap the app's names through both: the artifact name (`irisin-<sha>`),
+# the package ids in the asset list, the release title, the main branch
+# (Irisin's is main-4.0), and the notes path. Add a job per extra product the
+# app ships — Fila's sandboxed composition, iGhostVT's visionOS deb and Mac
+# zip, Xrash's Mac zip — each with its own DerivedData and its own
+# SHA256SUMS.<product> that the publish step concatenates.
+# Keep the name `Release`: pages.yml watches `workflows: [Release]`.
 # Licenses: Inspector has no collector, so its Scripts/ brings none. Take
 # Irisin's (scanned) or Fila's (reviewed) collector, the matching screen, the
 # build phase, and the make check / verify-deb gates — see "Licenses".

@@ -110,8 +110,14 @@ platformize-app-ios's; the quoted name is its section.
 
 ## Release and debugging
 
+- [ ] `ci.yml` and `release.yml` are both in, copied as a pair: CI builds and keeps `<app>-<sha>` for thirty days, Release waits for that run, compiles nothing, and publishes the artifact CI verified.
+      SKILL.md "Publishing": CI builds, Release publishes what CI built.
 - [ ] The release workflow is named `Release`, shaped test ‖ compile → release, and publishes one dSYM zip per build listed in `SHA256SUMS`.
       SKILL.md "Publishing"; "Native Depiction".
+- [ ] CI's concurrency keys a push on `github.sha` and a pull request on `github.ref`, so a push's run survives to be published by a tag on that commit.
+      SKILL.md "Publishing": the concurrency keys are not decoration.
+- [ ] `<docs>/Releases/` exists and the first release's note is written before its tag: a headline sentence, a bullet per user-visible change, a closing line naming the package and `SHA256SUMS`.
+      SKILL.md "Publishing": the release notes are a file in the repo.
 - [ ] Pages is set to GitHub Actions and `manifest.json` points its icon at the Pages URL.
       SKILL.md "Publishing".
 - [ ] Release builds are `dwarf-with-dsym`, and the dSYM of every build installed on a device is kept until that build is gone from the device.

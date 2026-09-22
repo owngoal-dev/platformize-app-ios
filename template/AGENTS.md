@@ -108,6 +108,20 @@ helper-per-job: the daemon starts one helper for one closed job.>
   `com.apple.private.security.storage.AppBundles` and `.AppDataContainers`
   beside `no-sandbox`**, on the app and on the daemon; `no-sandbox` alone
   does not open them on every platform.
+- **CI builds; Release publishes what CI built.** `ci.yml` compiles, packages
+  and verifies on every push and pull request, and keeps `build/Packages/` as
+  the artifact `<app>-<sha>` for thirty days. `release.yml` runs on the tag,
+  compiles nothing, waits for that commit's CI run, refuses to publish unless
+  it passed, and ships the bytes CI verified. Never rebuild at tag time: a
+  second build is a different build number, a different runner image and
+  bytes no test ever ran against. The workflow stays named `Release` —
+  `pages.yml` watches for it.
+- **The release notes are a file in the repo**, `<docs>/Releases/<version>.md`,
+  written before the tag. One headline sentence saying what this release
+  does, one bullet per user-visible change in the user's words with the
+  symptom first, and a closing line naming the package to choose and
+  `SHA256SUMS`. No commit shas, no internal names, no `--generate-notes`
+  compare link — that tells a user nothing they could not already read.
 - **A crash is read before anything is changed.** Keep the dSYM of every
   build installed on a device, match it to the report's image UUID
   (`dwarfdump --uuid`), and symbolicate with `atos -o <dSYM DWARF> -l
