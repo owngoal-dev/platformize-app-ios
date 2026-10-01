@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import plistlib
 import re
 import shutil
 import subprocess
@@ -96,6 +97,33 @@ class TemplateTests(unittest.TestCase):
                 self.assertIn(f'bootout {domain}/wiki.qaq.exampled', calls)
             if hook == 'postinst':
                 self.assertIn(f'bootstrap system {prefix}/Library/LaunchDaemons/wiki.qaq.exampled.plist', calls)
+
+    def test_app_carries_the_gpu_list_under_both_keys(self):
+        # System frameworks reach for the GPU in an app that never draws with
+        # Metal: IconServices through Core Image (Inspector #15), Bold Text
+        # through UIKit (Irisin). Without the list the app crashes at launch.
+        key = 'com.apple.security.iokit-user-client-class'
+        exception = 'com.apple.security.exception.iokit-user-client-class'
+        packaging = self.repo / 'Packaging'
+        app = plistlib.loads((packaging / 'APP.entitlements').read_bytes())
+        self.assertEqual(app.get(key), app.get(exception))
+        for name in ('AGXDeviceUserClient', 'AppleParavirtDeviceUserClient',
+                     'IOGPUDeviceUserClient', 'IOAccelerator',
+                     'IOSurfaceRootUserClient'):
+            self.assertIn(name, app[key])
+        gate = ROOT / 'scripts/check-gpu-entitlements.py'
+        passed = subprocess.run([gate, packaging / 'APP.entitlements'], capture_output=True)
+        self.assertEqual(passed.returncode, 0, passed.stderr)
+        app[key].remove('IOGPUDeviceUserClient')
+        stripped = Path(self.temp.name) / 'stripped.entitlements'
+        stripped.write_bytes(plistlib.dumps(app))
+        failed = subprocess.run([gate, stripped], capture_output=True, text=True)
+        self.assertEqual(failed.returncode, 65)
+        self.assertIn('IOGPUDeviceUserClient', failed.stderr)
+        for other in ('DAEMON.entitlements', 'HELPER.entitlements'):
+            entitlements = plistlib.loads((packaging / other).read_bytes())
+            self.assertNotIn(key, entitlements, other)
+            self.assertNotIn(exception, entitlements, other)
 
     def test_license_collection_is_a_rule_of_the_scaffold(self):
         notes = (self.repo / 'AGENTS.md').read_text()

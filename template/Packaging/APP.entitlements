@@ -27,25 +27,84 @@
 	if either one looks there; drop both from an app that has no business
 	there.
 
-	Add `com.apple.security.iokit-user-client-class` only if the app draws with
-	Metal itself (a terminal, an emulator, a renderer). A bootstrap withholds
-	the GPU from an ad-hoc signed binary until this entitlement names the
-	classes, and the failure is silent: the surface never reports a viewport and
-	the view is a blank rectangle while everything behind it works. Classes
-	that have been required on device: AGXCommandQueue, AGXDevice,
-	AGXDeviceUserClient, AGXSharedUserClient, AGXGLContext,
-	AppleParavirtDeviceUserClient (VM GPU), IOAccelContext, IOAccelContext2,
-	IOAccelDevice, IOAccelDevice2, IOAccelSharedUserClient,
-	IOAccelSharedUserClient2, IOAccelSubmitter2, IOSurfaceRootUserClient,
-	IOSurfaceAcceleratorClient, IOMobileFramebufferUserClient,
-	AppleJPEGDriverUserClient, IOHIDLibUserClient,
-	IOHIDEventServiceFastPathUserClient. Core Image / Vision may also need
-	`exception.iokit-user-client-class`.
+	`com.apple.security.iokit-user-client-class` names the GPU and what sits
+	beside it. Every app carries it, whether or not it draws with Metal
+	itself: a bootstrap withholds these IOKit classes from an ad-hoc signed
+	binary until they are named, and system frameworks reach for them inside
+	the app's process. IconServices composites an app icon through Core
+	Image, and Inspector 0.6.2 crashed at launch on an A12 iPhone on iOS 18
+	RootHide with a null call in `CI::GLContext::GLContext`, under
+	`_applicationIconImageForBundleIdentifier:` (Inspector #15). Bold Text
+	does the same through UIKit (Irisin), and so did the share sheet in
+	Saily (Irisin #65). A Metal view of the app's own fails without a crash:
+	a blank rectangle that never reports a viewport.
+
+	The list is Irisin's: AGX and the older IOAccel names, IOSurface, the
+	framebuffer, JPEG decode, HID, `IOGPUDeviceUserClient` and
+	`IOAccelerator` from the Bold Text report, the neural engine Vision asks
+	for, and vphone's paravirtual names (`AppleParavirt…`,
+	`…ParavirtClient`, `AppleVirtIO…`). Both spellings of the key carry the
+	same list: the kernel's denial names the plain one, and the Bold Text
+	fix was the `exception.` one.
 -->
 <plist version="1.0">
 <dict>
 	<key>application-identifier</key>
 	<string>@BUNDLE_ID@</string>
+	<key>com.apple.security.iokit-user-client-class</key>
+	<array>
+		<string>AGXCommandQueue</string>
+		<string>AGXDevice</string>
+		<string>AGXDeviceUserClient</string>
+		<string>AGXSharedUserClient</string>
+		<string>AGXGLContext</string>
+		<string>AppleParavirtDeviceUserClient</string>
+		<string>IOAccelerator</string>
+		<string>IOAccelContext</string>
+		<string>IOAccelContext2</string>
+		<string>IOAccelDevice</string>
+		<string>IOAccelDevice2</string>
+		<string>IOAccelSharedUserClient</string>
+		<string>IOAccelSharedUserClient2</string>
+		<string>IOAccelSubmitter2</string>
+		<string>IOGPUDeviceUserClient</string>
+		<string>IOSurfaceRootUserClient</string>
+		<string>IOSurfaceAcceleratorClient</string>
+		<string>IOSurfaceAcceleratorParavirtClient</string>
+		<string>IOMobileFramebufferUserClient</string>
+		<string>AppleJPEGDriverUserClient</string>
+		<string>H11ANEInDirectPathClient</string>
+		<string>AppleVirtIONeuralEngineDeviceUserClient</string>
+		<string>IOHIDLibUserClient</string>
+		<string>IOHIDEventServiceFastPathUserClient</string>
+	</array>
+	<key>com.apple.security.exception.iokit-user-client-class</key>
+	<array>
+		<string>AGXCommandQueue</string>
+		<string>AGXDevice</string>
+		<string>AGXDeviceUserClient</string>
+		<string>AGXSharedUserClient</string>
+		<string>AGXGLContext</string>
+		<string>AppleParavirtDeviceUserClient</string>
+		<string>IOAccelerator</string>
+		<string>IOAccelContext</string>
+		<string>IOAccelContext2</string>
+		<string>IOAccelDevice</string>
+		<string>IOAccelDevice2</string>
+		<string>IOAccelSharedUserClient</string>
+		<string>IOAccelSharedUserClient2</string>
+		<string>IOAccelSubmitter2</string>
+		<string>IOGPUDeviceUserClient</string>
+		<string>IOSurfaceRootUserClient</string>
+		<string>IOSurfaceAcceleratorClient</string>
+		<string>IOSurfaceAcceleratorParavirtClient</string>
+		<string>IOMobileFramebufferUserClient</string>
+		<string>AppleJPEGDriverUserClient</string>
+		<string>H11ANEInDirectPathClient</string>
+		<string>AppleVirtIONeuralEngineDeviceUserClient</string>
+		<string>IOHIDLibUserClient</string>
+		<string>IOHIDEventServiceFastPathUserClient</string>
+	</array>
 	<key>com.apple.security.application-groups</key>
 	<array><string>$(APP_GROUP_IDENTIFIER)</string></array>
 	<key>@APP_CLIENT_ENTITLEMENT@</key>

@@ -482,7 +482,7 @@ The Makefile targets, in the order you will need them:
 | target | what it does |
 | --- | --- |
 | `make harness` | `swift test --package-path Packages/<App>Kit`. No device. Run first: this is where a guard mistake or a copy that loses an xattr is caught. |
-| `make check` | project and packaging validation: xcconfig ownership, `objectVersion`, plist lint, entitlement shape, the UI-library greps, the deployment-floor greps, the Collect Licenses phase. |
+| `make check` | project and packaging validation: xcconfig ownership, `objectVersion`, plist lint, entitlement shape, the app's GPU list (`check-gpu-entitlements.py`), the UI-library greps, the deployment-floor greps, the Collect Licenses phase. |
 | `make build` | unsigned app + daemon for iPhoneOS (runs `check` and `harness` first). |
 | `make sim` | Debug onto the booted simulator. There is **no LaunchDaemon** there and there cannot be — `launchd_sim` prefixes every job's program path with the sealed runtime root — so the simulator exercises the unprivileged backend and everything visual. Irisin is the exception: it runs the installer in-process against a directory of its own. Do not fake a daemon in the app to "fix" the simulator. |
 | `make deb` / `make deb-all` | package for `FLAVOR` (roothide default, `iphoneos-arm64e`, rootful paths; `FLAVOR=rootless` packages the same binaries under `/var/jb` as `iphoneos-arm64`), ad-hoc sign with ldid, then verify the archive. |
@@ -873,15 +873,31 @@ did not:
   belong in the log. A list row is a picture (the app's icon, or a `terminal`
   glyph for a bare executable), a name a person would say, and a subtitle
   that carries information.
-- **A blank Metal surface is an entitlement miss.** The bootstrap withholds
-  the GPU from an ad-hoc binary until
-  `com.apple.security.iokit-user-client-class` names the classes
-  (`AGXDeviceUserClient`, `AppleParavirtDeviceUserClient` on vphone, IOAccel,
-  IOSurface, framebuffer, HID). The kernel logs
-  `deny iokit-open-user-client`; the view is a rectangle that never reports a
-  viewport, while the daemon and everything behind it work. Copy iGhostVT's
-  list. Core Image / Vision may need the `exception.iokit-user-client-class`
-  spelling as well (Irisin, after a Bold Text crash).
+- **Every app carries the GPU list, whether or not it draws with Metal.**
+  The bootstrap withholds the GPU from an ad-hoc binary until
+  `com.apple.security.iokit-user-client-class` names the classes, and
+  system frameworks reach for it inside the app's process: IconServices
+  composites an app icon through Core Image, Bold Text and the share sheet
+  style glyphs through it. Inspector 0.6.2 shipped without the list and
+  crashed at launch on an A12 iPhone, iOS 18 RootHide (Inspector #15): a
+  null call in `CI::GLContext::GLContext` under
+  `+[UIImage _applicationIconImageForBundleIdentifier:format:scale:]`.
+  Irisin died the same way with Bold Text on, and Saily in the share sheet
+  (Irisin #65). An app's own Metal view fails without a crash instead: the
+  kernel logs `deny(1) iokit-open-user-client AGXDeviceUserClient`, and the
+  view is a rectangle that never reports a viewport while the daemon and
+  everything behind it work. `template/Packaging/APP.entitlements` ships
+  Irisin's list (AGX, IOAccel, IOGPU, IOSurface, framebuffer, JPEG, HID, the
+  neural engine, and vphone's paravirtual names) under both spellings of
+  the key, `iokit-user-client-class` and
+  `exception.iokit-user-client-class`; the kernel's denial names the first,
+  Irisin's Bold Text fix was the second. `scripts/check-gpu-entitlements.py
+  Packaging/<App>.entitlements` is the gate: `make check` runs it, every
+  package target runs `check`, so a list that loses a class fails CI before
+  anything is packaged. When a crash report names a new class, add it to the
+  script's `REQUIRED` here first, copy the script into all five apps, and
+  add the class to each app's entitlements. It belongs on the app only: a
+  daemon or a CLI draws nothing.
 - **RootHide renames the bootstrap root at every jailbreak, and rewrites the
   launchd plists to match.** Its `launchctl` patches each file in
   `Library/LaunchDaemons` in place (`plistpatch.m`): a plist without
@@ -978,8 +994,9 @@ cp <Irisin>/.github/workflows/ci.yml <Irisin>/.github/workflows/release.yml .git
 # The two release gates and the checklist gate travel with the repo; they
 # name no sibling.
 cp <this skill>/scripts/audit-ios-floor.sh <this skill>/scripts/check-symbol-availability.py \
-    <this skill>/scripts/check-checklist.sh Scripts/
-chmod +x Scripts/check-checklist.sh
+    <this skill>/scripts/check-checklist.sh <this skill>/scripts/check-gpu-entitlements.py Scripts/
+chmod +x Scripts/check-checklist.sh Scripts/check-gpu-entitlements.py
+# make check: Scripts/check-gpu-entitlements.py Packaging/<App>.entitlements
 # Wire the checklist gate into the copied Makefile now (lines below), then
 # work through CHECKLIST.md before writing any code.
 # Set its workflow name to Release, then remove only product-only jobs.
