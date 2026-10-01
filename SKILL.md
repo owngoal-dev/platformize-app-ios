@@ -387,36 +387,34 @@ failure and a different library name.
 
 ### 4. A Swift runtime symbol newer than the floor, imported non-weakly
 
-The library is on the old device; the symbol is not. Irisin 4.5.11 died at
-launch on iOS 26.6.2 (crash report, `termination.namespace` `DYLD`):
+The library is on the old device; the symbol is not, and dyld refuses the
+process at launch (crash report, `termination.namespace` `DYLD`):
 
 ```
 "Symbol not found: _swift_initBorrow"
 "Expected in: /usr/lib/swift/libswiftCore.dylib"
 ```
 
-swift-collections 1.7.0 adopts the Swift 6.4 standard library's borrow types,
-and built with Xcode 27 its `InternalCollectionsUtilities` imports that iOS 27
-runtime entry point strongly (`nm -m`: `(undefined) external _swift_initBorrow
-(from libswiftCore)`). Nothing in the build said so, and our own code never
-touched the type. Pinning swift-collections at exactly 1.6.0 removed the
-import. A dependency's minor version can raise the floor this way, so a bump
-of anything that follows the standard library closely is tested by launching
-the packaged Release build on a device below the newest iOS, not by building
-it.
+Nothing in the build says so. The compiler can reference a runtime entry
+point newer than the deployment target from code that never names it — Swift
+6.4 does it with `_swift_initBorrow` (iOS 27) — so a dependency bump or a new
+Xcode can raise the floor on its own. A bump of anything that follows the
+standard library closely is tested by launching the packaged Release build on
+a device below the newest iOS, not by building it. What a binary imports from
+the Swift runtime:
 
 ```sh
 nm -m <binary> | grep '(undefined) external' | grep '(from libswift'
 ```
 
 `audit-ios-floor.sh` fails on every symbol in its `late_runtime_symbols` list
-(add a line with the crash that taught it), and, where an iOS simulator runtime
-at or above the floor is installed with its Swift libraries as files (18.x is;
-26 and later keep them only in the shared cache), on every such import that
-runtime's `libswiftCore` and other non-overlay libraries do not export. The
-Swift ABI only adds, so what that runtime lacks, the floor lacks. Overlays
-(`libswiftUIKit`, `libswiftDarwin`, …) re-export their frameworks and are left
-to the first check.
+(add a line with the symbol and the iOS that first exports it), and, where an
+iOS simulator runtime at or above the floor is installed with its Swift
+libraries as files (18.x is; 26 and later keep them only in the shared cache),
+on every such import that runtime's `libswiftCore` and other non-overlay
+libraries do not export. The Swift ABI only adds, so what that runtime lacks,
+the floor lacks. Overlays (`libswiftUIKit`, `libswiftDarwin`, …) re-export
+their frameworks and are left to the first check.
 
 ### 5. Asset and resource identifiers with an OS version attached
 
