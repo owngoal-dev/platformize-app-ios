@@ -126,6 +126,13 @@ helper-per-job: the daemon starts one helper for one closed job.>
   build installed on a device, match it to the report's image UUID
   (`dwarfdump --uuid`), and symbolicate with `atos -o <dSYM DWARF> -l
   0x100000000 <0x100000000 + imageOffset>` before guessing at a cause.
+- **Every path launchd opens names its root.** Roothide's launchctl puts the
+  bootstrap root in front of the program, `WatchPaths`, `QueueDirectories`,
+  `Standard*Path` and the other paths launchd reads, unless one starts with
+  `/rootfs/`; rootless's passes them through. A bootstrap path is spelled
+  `@PREFIX@/…`, a system one `@ROOTFS@/…` (the packager writes `/rootfs` for
+  roothide, nothing for rootless). `Scripts/check-launchd-paths.py` fails
+  `make check` on a bare one; a plist without such keys needs neither.
 - **Versions and the deployment target live in `Configuration/*.xcconfig`
   only.** `make check` rejects either in `project.pbxproj`.
 - **No project generators.** `project.pbxproj` is hand-written; `objectVersion`

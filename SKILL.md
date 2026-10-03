@@ -303,6 +303,19 @@ self-updating installer into the daemon.
   `uicache` in installation or removal hooks, including copied scripts.
   `@PREFIX@` in the launchd plist, `postinst` and `prerm` is substituted at
   package time.
+- **Every path launchd itself opens names its root.** Roothide's launchctl
+  (and only roothide's — Procursus's, on rootless, passes the plist through)
+  rewrites the program, `WatchPaths`, `QueueDirectories`, `Standard*Path`,
+  `WorkingDirectory`, `RootDirectory`, `HOME`/`TMPDIR`/`CFFIXED_USER_HOME`,
+  `KeepAlive.PathState`, `SockPathName` and fsevents `Path`: each gets the
+  bootstrap root in front, except one under `/rootfs/`, which is stripped. A
+  bare system path is then watched inside the bootstrap, where it never
+  exists, and nothing fails — Xrash's report directory watch never fired on
+  roothide (2026-10-03). Spell a bootstrap path `@PREFIX@/…` and a system path
+  `@ROOTFS@/…`, which the packager fills with `/rootfs` for roothide and
+  nothing for rootless; never a literal `/rootfs/`. A plist with no such key
+  beyond its program needs neither and gets no `@ROOTFS@` substitution.
+  `scripts/check-launchd-paths.py` is the gate.
   `postinst` boots out **system, user/501 and gui/501** before bootstrap:
   roothide's launchctl can land a system daemon in the per-user domain.
 - **Every shipped app carries the notices of everything it links, generated
@@ -482,7 +495,7 @@ The Makefile targets, in the order you will need them:
 | target | what it does |
 | --- | --- |
 | `make harness` | `swift test --package-path Packages/<App>Kit`. No device. Run first: this is where a guard mistake or a copy that loses an xattr is caught. |
-| `make check` | project and packaging validation: xcconfig ownership, `objectVersion`, plist lint, entitlement shape, the app's GPU list (`check-gpu-entitlements.py`), the UI-library greps, the deployment-floor greps, the Collect Licenses phase. |
+| `make check` | project and packaging validation: xcconfig ownership, `objectVersion`, plist lint, entitlement shape, the app's GPU list (`check-gpu-entitlements.py`), the launchd plist's paths (`check-launchd-paths.py`), the UI-library greps, the deployment-floor greps, the Collect Licenses phase. |
 | `make build` | unsigned app + daemon for iPhoneOS (runs `check` and `harness` first). |
 | `make sim` | Debug onto the booted simulator. There is **no LaunchDaemon** there and there cannot be — `launchd_sim` prefixes every job's program path with the sealed runtime root — so the simulator exercises the unprivileged backend and everything visual. Irisin is the exception: it runs the installer in-process against a directory of its own. Do not fake a daemon in the app to "fix" the simulator. |
 | `make deb` / `make deb-all` | package for `FLAVOR` (roothide default, `iphoneos-arm64e`, rootful paths; `FLAVOR=rootless` packages the same binaries under `/var/jb` as `iphoneos-arm64`), ad-hoc sign with ldid, then verify the archive. |
@@ -994,9 +1007,12 @@ cp <Irisin>/.github/workflows/ci.yml <Irisin>/.github/workflows/release.yml .git
 # The two release gates and the checklist gate travel with the repo; they
 # name no sibling.
 cp <this skill>/scripts/audit-ios-floor.sh <this skill>/scripts/check-symbol-availability.py \
-    <this skill>/scripts/check-checklist.sh <this skill>/scripts/check-gpu-entitlements.py Scripts/
-chmod +x Scripts/check-checklist.sh Scripts/check-gpu-entitlements.py
+    <this skill>/scripts/check-checklist.sh <this skill>/scripts/check-gpu-entitlements.py \
+    <this skill>/scripts/check-launchd-paths.py Scripts/
+chmod +x Scripts/check-checklist.sh Scripts/check-gpu-entitlements.py Scripts/check-launchd-paths.py
 # make check: Scripts/check-gpu-entitlements.py Packaging/<App>.entitlements
+# make check: Scripts/check-launchd-paths.py "Packaging/<daemon bundle id>.plist" \
+#     --substituted-by Scripts/package-deb.sh
 # Wire the checklist gate into the copied Makefile now (lines below), then
 # work through CHECKLIST.md before writing any code.
 # Set its workflow name to Release, then remove only product-only jobs.
@@ -1069,7 +1085,8 @@ Placeholders: `@APP_NAME@`, `@REPO@`, `@BUNDLE_ID@` (`wiki.qaq.<app>`),
 `@ONE_LINE_DESCRIPTION@`, `@PACKAGE_DESCRIPTION@`, `@BANNER_URL@`, and
 `@DEPICTION_DESCRIPTION@`. `@PREFIX@`, `@VERSION@`, `@ARCHITECTURE@`, `@FLAVOR@`
 and `@INSTALLED_SIZE@` are substituted by the packager at package time — leave
-those alone.
+those alone. So is `@ROOTFS@` where a launchd plist uses one; Xrash's
+`package-deb.sh` is the packager that fills it.
 
 **Replace the token and nothing around it.** Match `@DAEMON_ID@`, never
 `/@DAEMON_ID@ ` with its neighbours: a replacement that drops the trailing

@@ -21,7 +21,7 @@ VALUES = {
     'BANNER_URL': 'https://raw.githubusercontent.com/owngoal-dev/Example/main/Documents/banner.png',
     'DEPICTION_DESCRIPTION': 'View your "Documents".\n\nRequires iOS 15 or later and a jailbreak.',
 }
-PACKAGE_KEYS = {'PREFIX', 'VERSION', 'ARCHITECTURE', 'FLAVOR', 'INSTALLED_SIZE'}
+PACKAGE_KEYS = {'PREFIX', 'VERSION', 'ARCHITECTURE', 'FLAVOR', 'INSTALLED_SIZE', 'ROOTFS'}
 
 
 def replace_text(text, values):

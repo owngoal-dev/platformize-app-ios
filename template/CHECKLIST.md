@@ -39,6 +39,8 @@ platformize-app-ios's; the quoted name is its section.
       SKILL.md "The contract": a hello has a bound.
 - [ ] Every optional key in the launchd plist (`KeepAlive`, `RunAtLoad`, `AbandonProcessGroup`, `ProcessType`) is enabled or deleted to match the shape.
       `Packaging/<daemon id>.plist`; SKILL.md "Template".
+- [ ] `Scripts/check-launchd-paths.py` is copied in and wired into `make check` against the launchd plist; any watched, logged or working path is spelled `@PREFIX@/…` or `@ROOTFS@/…`, and the packager fills `@ROOTFS@` if one is used.
+      SKILL.md "Every path launchd itself opens names its root".
 - [ ] Nothing third-party links into the daemon, and whether a CLI (a second peer) exists is decided and written down.
       SKILL.md "The contract"; "Layout".
 
