@@ -1,0 +1,15 @@
+Package: @PACKAGE_ID@
+Name: @APP_NAME@
+Version: @VERSION@
+Architecture: @ARCHITECTURE@
+Description: @ONE_LINE_DESCRIPTION@ for @FLAVOR@ jailbreaks
+ @PACKAGE_DESCRIPTION@
+Icon: https://owngoal-dev.github.io/@REPO@/icon.png
+Depiction: https://owngoal-dev.github.io/@REPO@/
+SileoDepiction: https://owngoal-dev.github.io/@REPO@/depiction.json
+Maintainer: OwnGoal Studio <not-gonna-reply@owngoal.dev>
+Author: OwnGoal Studio <not-gonna-reply@owngoal.dev>
+Section: Utilities
+Priority: optional
+Depends: firmware (>= @MINIMUM_IOS_VERSION@), uikittools, launchctl
+Installed-Size: @INSTALLED_SIZE@

@@ -1,0 +1,20 @@
+// Rename the module after the app (`C<App>XPC`) so two projects in one Xcode
+// workspace cannot collide.
+//
+// `XPC_TYPE_DICTIONARY`, `XPC_ARRAY_APPEND` and `XPC_ERROR_CONNECTION_*` are C
+// macros over libSystem globals that have existed since iOS 8. Recent SDKs also
+// ship a Swift overlay for XPC, and in Swift those same spellings resolve to
+// accessors exported by `/usr/lib/swift/libswiftXPC.dylib` — a library the
+// system first shipped in iOS 16. One use of one of them turns the overlay's
+// load command from weak into required, and dyld then kills the process at
+// launch on iOS 15: "Library not loaded: /usr/lib/swift/libswiftXPC.dylib".
+// Nothing in the build says so.
+//
+// So the macros are read through C, where they are still the old globals, and
+// no Swift file in the project names them. `import XPC` itself stays; only the
+// symbols matter. Add the directory holding this file to SWIFT_INCLUDE_PATHS,
+// and do not add it to any target's compile sources.
+module CAppXPC [system] {
+    header "shim.h"
+    export *
+}

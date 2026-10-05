@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	The app's entitlements for the jailbreak wrappers (the deb and the .tipa).
+	The ordinary sideload .ipa gets a separate file carrying only the App Group
+	(if any): verify-ipa.sh checks jailbreak entitlements for *absence* there
+	and for presence here, because the two archives fail in opposite directions.
+
+	`@APP_CLIENT_ENTITLEMENT@` is the private key the daemon's authenticator
+	looks for on a peer. Name it after the app, never reuse another app's, and
+	never grant it to anything you would not hand a root descriptor to.
+
+	Mach-lookup of `@SERVICE_NAME@` is not optional: without it the app cannot
+	find the daemon.
+
+	The App Group is required on the app and every embedded extension that
+	shares a container. Delete the key for a Live Activity–only appex, and
+	only keep `$(APP_GROUP_IDENTIFIER)` if the packager substitutes it.
+
+	`platform-application` is the default. It attests "signed as platform",
+	not "this client". If it is unused on the app, drop it from the app *and*
+	from the authenticator together.
+
+	The two storage entitlements are what let the app read other apps' bundles
+	and data containers (icons, Info.plist, documents): `no-sandbox` alone does
+	not open them on every platform. Keep them on the app *and* on the daemon
+	if either one looks there; drop both from an app that has no business
+	there.
+
+	`com.apple.security.iokit-user-client-class` names the GPU and what sits
+	beside it. Every app carries it, whether or not it draws with Metal
+	itself: a bootstrap withholds these IOKit classes from an ad-hoc signed
+	binary until they are named, and system frameworks reach for them inside
+	the app's process. IconServices composites an app icon through Core
+	Image; without the list an app crashed at launch on an A12 iPhone on
+	iOS 18 RootHide with a null call in `CI::GLContext::GLContext`, under
+	`_applicationIconImageForBundleIdentifier:`. Bold Text does the same
+	through UIKit, and so does the share sheet. A Metal view of the app's
+	own fails without a crash: a blank rectangle that never reports a
+	viewport.
+
+	The list: AGX and the older IOAccel names, IOSurface, the
+	framebuffer, JPEG decode, HID, `IOGPUDeviceUserClient` and
+	`IOAccelerator` from the Bold Text report, the neural engine Vision asks
+	for, and vphone's paravirtual names (`AppleParavirt…`,
+	`…ParavirtClient`, `AppleVirtIO…`). Both spellings of the key carry the
+	same list: the kernel's denial names the plain one, and the Bold Text
+	fix was the `exception.` one.
+-->
+<plist version="1.0">
+<dict>
+	<key>application-identifier</key>
+	<string>@BUNDLE_ID@</string>
+	<key>com.apple.security.iokit-user-client-class</key>
+	<array>
+		<string>AGXCommandQueue</string>
+		<string>AGXDevice</string>
+		<string>AGXDeviceUserClient</string>
+		<string>AGXSharedUserClient</string>
+		<string>AGXGLContext</string>
+		<string>AppleParavirtDeviceUserClient</string>
+		<string>IOAccelerator</string>
+		<string>IOAccelContext</string>
+		<string>IOAccelContext2</string>
+		<string>IOAccelDevice</string>
+		<string>IOAccelDevice2</string>
+		<string>IOAccelSharedUserClient</string>
+		<string>IOAccelSharedUserClient2</string>
+		<string>IOAccelSubmitter2</string>
+		<string>IOGPUDeviceUserClient</string>
+		<string>IOSurfaceRootUserClient</string>
+		<string>IOSurfaceAcceleratorClient</string>
+		<string>IOSurfaceAcceleratorParavirtClient</string>
+		<string>IOMobileFramebufferUserClient</string>
+		<string>AppleJPEGDriverUserClient</string>
+		<string>H11ANEInDirectPathClient</string>
+		<string>AppleVirtIONeuralEngineDeviceUserClient</string>
+		<string>IOHIDLibUserClient</string>
+		<string>IOHIDEventServiceFastPathUserClient</string>
+	</array>
+	<key>com.apple.security.exception.iokit-user-client-class</key>
+	<array>
+		<string>AGXCommandQueue</string>
+		<string>AGXDevice</string>
+		<string>AGXDeviceUserClient</string>
+		<string>AGXSharedUserClient</string>
+		<string>AGXGLContext</string>
+		<string>AppleParavirtDeviceUserClient</string>
+		<string>IOAccelerator</string>
+		<string>IOAccelContext</string>
+		<string>IOAccelContext2</string>
+		<string>IOAccelDevice</string>
+		<string>IOAccelDevice2</string>
+		<string>IOAccelSharedUserClient</string>
+		<string>IOAccelSharedUserClient2</string>
+		<string>IOAccelSubmitter2</string>
+		<string>IOGPUDeviceUserClient</string>
+		<string>IOSurfaceRootUserClient</string>
+		<string>IOSurfaceAcceleratorClient</string>
+		<string>IOSurfaceAcceleratorParavirtClient</string>
+		<string>IOMobileFramebufferUserClient</string>
+		<string>AppleJPEGDriverUserClient</string>
+		<string>H11ANEInDirectPathClient</string>
+		<string>AppleVirtIONeuralEngineDeviceUserClient</string>
+		<string>IOHIDLibUserClient</string>
+		<string>IOHIDEventServiceFastPathUserClient</string>
+	</array>
+	<key>com.apple.security.application-groups</key>
+	<array><string>$(APP_GROUP_IDENTIFIER)</string></array>
+	<key>@APP_CLIENT_ENTITLEMENT@</key>
+	<true/>
+	<key>com.apple.security.exception.mach-lookup.global-name</key>
+	<array>
+		<string>@SERVICE_NAME@</string>
+	</array>
+	<key>com.apple.private.security.no-sandbox</key>
+	<true/>
+	<key>com.apple.private.security.storage.AppBundles</key>
+	<true/>
+	<key>com.apple.private.security.storage.AppDataContainers</key>
+	<true/>
+	<key>platform-application</key>
+	<true/>
+</dict>
+</plist>

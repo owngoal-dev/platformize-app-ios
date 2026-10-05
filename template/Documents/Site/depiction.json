@@ -1,0 +1,39 @@
+{
+  "class": "DepictionTabView",
+  "minVersion": "0.4",
+  "headerImage": "@BANNER_URL@",
+  "tabs": [
+    {
+      "class": "DepictionStackView",
+      "tabname": "Details",
+      "views": [
+        {
+          "class": "DepictionHeaderView",
+          "title": "Description"
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "markdown": "@DEPICTION_DESCRIPTION@",
+          "useSpacing": true
+        },
+        {
+          "class": "DepictionHeaderView",
+          "title": "Information"
+        },
+        {
+          "class": "DepictionSeparatorView"
+        },
+        {
+          "class": "DepictionTableTextView",
+          "title": "iOS Versions",
+          "text": "@MINIMUM_IOS_VERSION@ or later"
+        },
+        {
+          "class": "DepictionTableTextView",
+          "title": "Developer",
+          "text": "OwnGoal Studio"
+        }
+      ]
+    }
+  ]
+}

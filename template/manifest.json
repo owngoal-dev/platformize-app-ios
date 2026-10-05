@@ -1,0 +1,6 @@
+{
+  "name": "@APP_NAME@",
+  "description": "@ONE_LINE_DESCRIPTION@",
+  "icon": "https://owngoal-dev.github.io/@REPO@/icon.png",
+  "homepage": "https://github.com/owngoal-dev/@REPO@"
+}

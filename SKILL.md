@@ -1,0 +1,1235 @@
+---
+name: platformize-app-ios
+description: Build and ship a native iOS app for jailbroken devices — a UIKit app plus its own root LaunchDaemon over XPC, packaged as roothide (iphoneos-arm64e) and rootless (iphoneos-arm64) debs and as a TrollStore .tipa / sideload .ipa, released from GitHub Actions and served by the owngoal-packages APT repo. Use when asked to "build a jailbreak app", "give my app a root daemon", "package an iOS app as a deb", "make it work on roothide and rootless", "ship it to TrollStore too", or to start a new OwnGoal app repo the way Fila, iGhostVT, Inspector and Irisin are built.
+---
+
+# platformize-app-ios
+
+Turn an iOS app into `wiki.qaq.<app>_<ver>_iphoneos-arm64{,e}.deb` plus
+`<App>.tipa` / `<App>.ipa`, the way
+`owngoal-dev/{Fila,iGhostVT,Inspector}` and `Lakr233/Irisin` do it.
+Reference implementations — pick by *daemon shape*, then copy that sibling's
+`Scripts/` and `Makefile`:
+
+- `../Fila` — file manager: app + `filad` + a spawn-only archive helper + a
+  Save Action + a WebDAV server. The most complete *packaging* machinery. The
+  default shape: the daemon `open(2)`s and forgets, bytes never enter it.
+- `../iGhostVT` — terminal: app + `ighostvtd` proxy + `ighostvtd-io` + CLI +
+  widgets, SwiftUI. Copy this only when something must stay open after the app
+  dies and its buffers would jetsam a 6 MB launchd job.
+- `../Inspector` — process inspector: app + daemon + CLI. The smallest
+  on-demand daemon, and the easiest to read end to end. Floor is iOS 13.
+- [Irisin](https://github.com/Lakr233/Irisin) (formerly Chromatic / Saily) — package manager: app +
+  `irisind` + one `irisin-install` per closed job. Swift 6 with main-actor
+  default isolation. The helper-per-job reference. `chromatic` and `Saily` are
+  dead names; Irisin's `make check` fails on either, and so should a new repo.
+
+Read one before starting. This skill is the part that is the same in all four;
+everything else is the app. Do not `cp ../Fila/Scripts` before the shape is
+chosen — Fila's packager assumes an archive helper and no
+`KeepAlive`.
+
+The sibling skill `platformize-bin-ios` ports *command-line tools*. If what you
+are shipping has no `.app`, use that one instead. App repos use `Makefile`,
+`Scripts/`, `Packaging/`, `Configuration/` (Pascal). Packaging-only C/Rust
+repos use lowercase `makefile` and directories; a SwiftPM CLI may match the
+app casing (`kk` does — do not "fix" it).
+
+## Pick the daemon shape
+
+launchd caps a LaunchDaemon at 6 MB. That number decides the process model.
+Absence of the daemon at lookup is still *Connecting…* in every shape; a miss
+is a respring, not a failure screen.
+
+**Fila / Inspector — one process, on-demand (the template default).**
+Privileged work is a syscall that returns immediately, or an fd the *client*
+holds (`xpc_dictionary_set_fd`). Bytes never enter the daemon. Last client
+gone → idle-exit (Fila: 3 s, and not while a child it spawned is unreaped).
+No `KeepAlive`, no `RunAtLoad`. Copy Fila for a file/descriptor daemon,
+Inspector for a pull-sampler.
+
+**iGhostVT — proxy + unsized child, `KeepAlive`.** Something must stay open
+after the app dies (PTY master, replay, a long-lived child) *and* that
+something's memory is unbounded. The launchd job is a thin authenticated
+proxy; fat work is `posix_spawn` of a child launchd never sized (do not set
+jetsam attrs on that spawn — children inherit 6 MB if you do). The io wire
+*refuses* fds and mach ports (the opposite of Fila). Device plist is
+`RunAtLoad` + `KeepAlive = true`. Demand-launch itself works; the race they
+could not close is last session emptying the registry → daemon deciding to
+exit → launchd already routing the next Mach connection. A crash while the
+app sits idle is the other case demand-launch cannot cover.
+
+**Irisin — one helper per closed job.** The work is a finite privileged
+*transaction* (dpkg, icon-cache rebuild) that must survive the daemon
+restarting, including when the job is this app itself. The wire is a closed
+enum of jobs, never `exec(path, argv)`. The daemon `posix_spawn`s a named
+helper (`POSIX_SPAWN_SETSID`, empty env, job on stdin) and hands back the
+output pipe. Plist `AbandonProcessGroup` so `postinst` `bootout` does not
+kill the in-flight helper. Helper ignores `SIGPIPE` and mirrors the
+transcript to `<root>/var/log/<helper>.log`.
+
+Anti-patterns: raising `JetsamMemoryLimit` instead of splitting; putting
+Foundation/`DateFormatter` in a 6 MB proxy; idle-exit on a daemon that still
+holds PTYs; forwarding XPC fds through a proxy codec; inlining a
+self-updating installer into the daemon.
+
+## The contract (do not bend these)
+
+- **The checklist comes before the code.** `template/CHECKLIST.md` is every
+  one-time decision below as a box, and a new repo works through it first:
+  no code is written until every box is ticked and `make check` passes
+  `Scripts/check-checklist.sh`, which runs before anything else and lists
+  what is still open. A box is ticked after the thing is done or decided,
+  never to get past the gate; one that does not apply is ticked with the
+  reason beside it. Each of these decisions is an edit on day one and a
+  migration after the first release. A missing file and a file with no
+  items fail too, so deleting the list is not finishing it.
+- **One app, several wrappers, and the backend is resolved at runtime, never at
+  build time.** The same binary runs under roothide, under rootless, from
+  TrollStore and from a sideload. Never add a build flag, a compilation
+  condition or a per-packaging source variant to tell them apart. The link to
+  the daemon answers "am I privileged" at its handshake, and that answer is an
+  enum carrying the install root, not a boolean beside it.
+- **The daemon's absence is never an error.** Keep retrying and keep saying
+  *Connecting…*. Fallback to an unprivileged in-process backend is a **grace
+  period** — a duration from the first miss, never a timeout and never a count
+  of attempts. A build that ships a daemon beside its bundle never falls back.
+  Ask `hello().isPrivileged`, never a construction-time "is the daemon
+  installed" flag.
+- **A hello has a bound; a missing service does not need one.** A lookup
+  miss errors at once. A service launchd has registered whose daemon never
+  takes the listener (program path wrong, killed at exec, wedged, crash
+  loop under `KeepAlive`) queues the message with no reply and no XPC error,
+  and an unbounded `send_message_with_reply` continuation waits for good.
+  Arm a timer beside the hello (Xrash 15 s, iGhostVT 20 s, Inspector 30 s
+  per request; a cold daemon after a userspace reboot is slow, so be
+  generous) and `xpc_connection_cancel` on expiry: the pending reply block
+  fires once with an error and the existing miss path takes it. Guard the
+  timer by connection generation so it cannot resume anything twice.
+- **Peer authentication is the whole trust boundary.** Before the first
+  request field is decoded: kernel audit token; pid > 1; euid root or mobile
+  (501); `wiki.qaq.<app>.client` and `com.apple.private.security.no-sandbox`
+  strictly true; `proc_pidpath` realpath-equal to the installed app (and CLI,
+  if any) inside the install root; regular file, uid 0, owner-executable, not
+  group- or world-writable. Fila, Inspector and Irisin also require
+  `platform-application` on the peer. iGhostVT dropped it on both sides: it
+  attests "signed as platform", not "this client", and requiring it forced
+  the app to carry an entitlement that tightens its sandbox and buys the
+  daemon nothing. Match the authenticator to the app entitlement set — do not
+  require a key the app does not have. Mach lookup is not auth. A CLI is a
+  second peer; add one only if someone will use it. Bundle ids, the Mach
+  service and the client entitlement are named after the app so two OwnGoal
+  apps cannot admit each other's peers.
+- **Nothing generic executes.** There is no `exec(path, argv)` on the wire. A
+  root daemon that can be talked into running a command is a root shell.
+  Spawn names exactly what, as whom, and what it refuses. Ordinary
+  `posix_spawn` — not `fork`, `forkpty`, `execve`, `POSIX_SPAWN_SETEXEC`.
+- **No install prefix is written in Swift.** Derive it from the daemon's own
+  `proc_pidpath`; an unrecognized path refuses startup. `@PREFIX@` is packager
+  only. Native app, daemon and helper keep **physical paths**: packaging
+  `otool -L` fails on `libvroot`. Do not `symredirect` one side of a
+  Foundation/XPC boundary. libroot's path spelling is not bootstrap identity
+  (`/var/jb` may be what it returns on roothide).
+- **roothide is recognised by the process's own path, never by a library
+  that may not load.** What the app must know before `hello` answers (which
+  bootstrap it is on, to refuse a package built for the other) comes from
+  `template/Shared/RoothideRoot.swift`: a path component that passes
+  libroothide's own `is_jbroot_name` (`.jbroot-`, sixteen hex digits, the
+  last byte the xor of the seven before it) is the root, which is how
+  libroothide's `init.c` finds it. Do not `dlopen`
+  `<bundle>/.jbroot/usr/lib/libroothide.dylib` to decide: that link is made
+  by roothide's dpkg hook or when the jailbreak loads a binary and is not
+  promised, roothide ships no `libroot.dylib`, and a `("/var/jb", rootless)`
+  fallback then calls a roothide device rootless. Irisin 4.3.6 refused to
+  start on iOS 16.1 roothide exactly so. A looser `hasPrefix(".jbroot")`
+  takes the `.jbroot` link itself for a bootstrap; keep the checksum.
+  `tests/test_roothide_root.py` compiles the file and runs the names.
+- **An app replaced or removed while it runs says so** — unless this package *is* the
+  installer of itself. dpkg renames each new file over the old one.
+  `template/App/ExecutableWatch.swift` holds the launched executable with
+  `O_EVTONLY` and fires once when the link count reaches zero, on update or
+  uninstall. It checks after dispatch-source registration too, so an unlink
+  between opening the fd and arming the watch is not lost. A `.dpkg-tmp`
+  hard link delays notification until cleanup; rollback keeps the old inode
+  linked and must not notify. The app asks *Later* or *Quit*, using wording
+  that covers both update and removal (the watch does not distinguish them).
+  **Quit never calls `exit` from the foreground**: a screen that vanishes
+  reads as a crash. `template/App/QuietExit.swift` leaves for the home screen
+  (`suspend`, under a background task so iOS does not freeze the old copy
+  first), waits for that animation, runs the cleanup `exit` would skip, and
+  exits. Every exit the app chooses goes through `QuietExit.run`; a
+  self-updating installer ends the same way once its transcript is done.
+  Copy the file unchanged; start it once, early in `didFinishLaunching`.
+  It watches the inode opened at startup: changes before that open, in-place
+  writes, and moves that retain a hard link are outside this guard.
+  `tests/test_executable_watch.py` compiles it into a real macOS process and
+  exercises replacement, unlink, dpkg backup cleanup, rollback, and unlink
+  before the registration callback. Device suspension still needs an iOS run.
+  **Do not watch the daemon**: postinst restarts it once every file is in
+  place, and a daemon that exited mid-unpack would kill its own helper. A
+  self-updating installer has no watch: the helper finishes the job and the
+  app `exit(0)`s after the transcript.
+- **A cold launch starts with no saved scenes.** UIKit reads
+  `Library/Saved Application State/<bundleID>.savedState` before any scene
+  delegate runs. A leftover archive — previous UI framework, previous
+  `Info.plist` scene configuration, previous `delegateClass` — restores that
+  old delegate and never reaches the current one. `template/App/main.swift`
+  deletes this bundle's `.savedState` *before* `UIApplicationMain`. The app
+  delegate is not `@main`. Background resumes do not run `main`, so a live
+  scene is left alone. Preferences and other bundles under the same folder
+  stay. Do this on every app, not only after a UI-framework rewrite, with
+  two exceptions. Not on Mac Catalyst, where the same folder is AppKit's
+  and holds the window frames (`#if !targetEnvironment(macCatalyst)`). And
+  check first in an app that keys its own state by
+  `UISceneSession.persistentIdentifier` (Fila's per-window tab lists): if
+  the reset orphans that state on every cold launch, the app keeps its
+  `@main` and says why in its notes.
+- **A control with no text has no name.** An icon-only `UIButton`, a
+  `UIBarButtonItem(image:)`, a full-bleed menu button and an invisible button
+  laid over a row all announce as a bare "button", or as the SF Symbol's own
+  identifier. Every one of the five apps shipped with a screenful of them.
+  Give each an `accessibilityLabel`; the trait already says "button", so the
+  word does not belong in the label. A label that goes stale is worse than
+  none — Inspector's live-updates button said *Pause Live Updates* while
+  paused, because the label was set once at construction rather than beside
+  the state it describes.
+  **A label on a container that is not an accessibility element is never
+  read.** UIKit takes `accessibilityLabel` off a view only when that view is
+  an element, and a `UIView`, `UITableViewCell` or `UICollectionViewCell`
+  with subviews is not one by default: VoiceOver walks past the assembled
+  sentence and reads the subviews instead, one stop each, with the drawn
+  separators (`·`, `|`) spoken. Fila's `BrowserGridCell` and `BackendRowCell`
+  had each built that sentence in `configure(_:)` and neither set
+  `isAccessibilityElement`; nothing warned, and a sighted read of the screen
+  cannot show it. `scripts/check-accessibility.py` is the gate — it resolves
+  superclasses and extensions across the source roots, so a base class that
+  sets the flag covers its subclasses — and it belongs in `make check` on day
+  one. A row that composes several labels sets the flag, takes the joined
+  line as its label, and puts the figure that changes in `accessibilityValue`
+  so a live sample re-announces the number without repeating the name.
+  **Becoming an element hides the subviews**, so a row that owns a button —
+  a menu accessory, a disclosure, a checkbox — swallows it the moment the
+  flag goes on, and the gate will happily push you there. That row keeps its
+  children reachable with an `accessibilityCustomAction` per control, or
+  leaves the flag off and labels the subviews instead. Decide which before
+  setting the flag: Fila's `IconRowCell` is still open for exactly this
+  reason, and Xrash's `FrameCell` acquired an unreachable label by copying
+  `BundleReportCell`, which had been unreachable since it was written. A
+  broken precedent in the same file is how this spreads.
+  **State that is only drawn is not spoken**: a checkmark, a tick, a
+  selected card, a progress fill, "already added". Put it in
+  `accessibilityValue` or a trait (`.selected`, `.isHeader`), not in prose.
+  **A label that repeats what is already read is a regression, not a fix.**
+  A `UIListContentConfiguration` row already reads "title, value"; a
+  `UISwitch` already supplies its own on/off; a titled `UIAction` or `UIMenu`
+  is already named. Ten such overrides were written and reverted across the
+  five apps in one pass — each one would have doubled an announcement and
+  then drifted from the drawn text.
+  **Accessibility is semantics, never behaviour.** A
+  `UIAccessibility.post(.layoutChanged)` on a routine view swap steals focus
+  — on Inspector's live-sampling screens it would have done so on every
+  sample — and a custom action that duplicates a row's context menu doubles
+  the rotor. Post an announcement for an event the user cannot see, and
+  nothing else.
+  **Labels are user-facing text** and follow the catalogue discipline below
+  like any other string: a `String.LocalizationValue` spelled out in English,
+  reused from an existing key wherever the control already draws one. A new
+  key is a translation in every shipped language, so derive the label from
+  the text the view already displays before inventing one — a whole app's
+  pass can land with no new keys at all.
+- **Every path is canonicalised before a decision is made about it.**
+  `realpath(3)` first, then compare components; reject an embedded NUL first.
+- **Versions and the deployment target live in `Configuration/*.xcconfig`
+  only.** A target-level `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION` or
+  `IPHONEOS_DEPLOYMENT_TARGET` in `project.pbxproj` silently shadows the
+  xcconfig. `make check` must reject both. Two styles for the build number:
+  Fila dirties `CURRENT_PROJECT_VERSION` from `make bump-build` on every
+  xcodebuild; Irisin passes it on the xcodebuild line (`GITHUB_RUN_NUMBER` /
+  git commit count) and never writes the file from a build. Pick one.
+- **No project generators.** `project.pbxproj` is hand-written, `objectVersion`
+  pinned (77). `make check` fails if Xcode rewrites it; revert that line.
+- **Name no specific package manager.** README, `AGENTS.md`, the depiction
+  and script messages say "your preferred package manager" — no named
+  client, no client-specific "Add to …" link, no `brew install` hint. Field
+  names such as `SileoDepiction` are identifiers and stay.
+- **No `CLAUDE.md`.** It is deprecated; `AGENTS.md` is the only notes file.
+- **Ad-hoc sign every embedded library, then read the entitlements back out.**
+  The Swift compatibility dylibs the toolchain copies in keep Apple's own
+  signature, which a jailbroken iOS 18 refuses outside the system: dyld halts
+  the app with "code signature invalid", and a newer iOS never loads the
+  library at all — so the crash appears only on the older device. Both
+  packagers re-read entitlements from the *signed* binaries. The deb and the
+  ordinary ipa fail in opposite directions. The app entitlement set always
+  includes mach-lookup of `@SERVICE_NAME@`. An App Group is required on the
+  app and every embedded extension *that shares a container* (Fila's Save
+  Action); a Live Activity–only appex (iGhostVT) has none — do not invent
+  one, and delete `$(APP_GROUP_IDENTIFIER)` from the entitlements if the
+  packager you copied does not substitute it (Inspector does not).
+  `platform-application` on the *app* is not automatic: iGhostVT measured
+  it as unused there and dropped it from the authenticator too.
+- **No third-party dependency links into the daemon.** The helper, if any,
+  is a separate budget (Irisin: IcliKit only). Root and `no-sandbox` do not
+  open a data vault: a process that writes under `/var/mobile/Library/Photos`
+  (and friends) needs `com.apple.private.security.storage.<Class>` on *that*
+  process. Fila's `Filad.entitlements` is the list; copy it onto a file-manager
+  daemon or an install helper, not onto a sampler.
+- **`no-sandbox` does not open another app's bundle or container.** An app
+  that reads other apps' bundles or data containers (icons, `Info.plist`,
+  documents) carries `com.apple.private.security.storage.AppBundles` and
+  `com.apple.private.security.storage.AppDataContainers` beside
+  `no-sandbox`, on the app *and* on the daemon: `no-sandbox` alone does not
+  open them on every platform.
+  Both template entitlement files ship the pair; delete it from a process
+  that has no business there.
+- **The app icon is never looked up by name.** An icon made in Icon Composer
+  (`AppIcon.icon`) compiles to a catalogue where the name `AppIcon` is an
+  image stack with no bitmap, and on iOS 26 `UIImage(named: "AppIcon")`
+  does not return nil: UIKit asserts in `-[_UIImageCGImageContent
+  initWithCGImageSource:CGImage:scale:]` and the app aborts. Xrash 0.2.0
+  crashed exactly so while drawing a report's PDF cover. Every in-app use of
+  the icon (alerts, covers, About) draws an ordinary image set; the siblings
+  call it `AppIconMark`. For *another* app's icon, ask IconServices first;
+  the loose-file fallback reads the `CFBundleIconFiles` names as PNG files in
+  the bundle directory with `UIImage(contentsOfFile:)`, never
+  `UIImage(named:in:)` with a name out of someone else's `Info.plist`.
+- **No absolute build path in a shipped binary.** `#file` is concise
+  (`SWIFT_UPCOMING_FEATURE_CONCISE_MAGIC_FILE`); `-file-prefix-map` /
+  `-ffile-prefix-map` are in `template/Configuration/Base.xcconfig`. A
+  dependency that spells `#file` in a *default argument* in Swift 5 mode leaks
+  the caller's path — SnapKit before 6.0 did. The packager greps every binary
+  for the repository root, `GITHUB_WORKSPACE` and `RUNNER_TEMP`.
+- **The deb Depends on `firmware (>= <floor>)`, `uikittools` and `launchctl`.**
+  Keep `uikittools`: its triggers register and unregister the app. Do not call
+  `uicache` in installation or removal hooks, including copied scripts.
+  `@PREFIX@` in the launchd plist, `postinst` and `prerm` is substituted at
+  package time.
+- **Every path launchd itself opens names its root.** Roothide's launchctl
+  (and only roothide's — Procursus's, on rootless, passes the plist through)
+  rewrites the program, `WatchPaths`, `QueueDirectories`, `Standard*Path`,
+  `WorkingDirectory`, `RootDirectory`, `HOME`/`TMPDIR`/`CFFIXED_USER_HOME`,
+  `KeepAlive.PathState`, `SockPathName` and fsevents `Path`: each gets the
+  bootstrap root in front, except one under `/rootfs/`, which is stripped. A
+  bare system path is then watched inside the bootstrap, where it never
+  exists, and nothing fails — Xrash's report directory watch never fired on
+  roothide (2026-10-03). Spell a bootstrap path `@PREFIX@/…` and a system path
+  `@ROOTFS@/…`, which the packager fills with `/rootfs` for roothide and
+  nothing for rootless; never a literal `/rootfs/`. A plist with no such key
+  beyond its program needs neither and gets no `@ROOTFS@` substitution.
+  `scripts/check-launchd-paths.py` is the gate.
+  `postinst` boots out **system, user/501 and gui/501** before bootstrap:
+  roothide's launchctl can land a system daemon in the per-user domain.
+- **Every shipped app carries the notices of everything it links, generated
+  by the build.** A **Collect Licenses** build phase writes `Licenses.json`
+  into the bundle, Settings shows it, `make check` requires the phase and the
+  packager refuses a bundle without the file. Never a hand-kept list, never a
+  rewritten collector or screen — copy the sibling's. See *Licenses* below.
+- **Review for sensitive information before every upload or publish, by
+  reading.** Before a push, a tag or a release, have an agent read the diff,
+  the staged payload tree and `strings` of the built binaries for credentials,
+  private keys, home or scratch paths, device identifiers, hostnames and
+  addresses. Never paste a device hostname, serial, UDID or LAN address into
+  docs, commit messages or release bodies.
+
+## The deployment floor is not what you set — it is what the linker believes
+
+An app that says `IPHONEOS_DEPLOYMENT_TARGET = 15.0` and builds cleanly against
+this year's SDK is **not** an app that runs on iOS 15. The live floors are not
+one number (Inspector 13, Fila and iGhostVT 15, Irisin 16). Five things
+silently raise whatever floor you claim, and none of them is a warning. Audit
+all five before any release; `scripts/audit-ios-floor.sh` checks the first
+four over the built products, and `scripts/check-symbol-availability.py`
+checks the fifth in source.
+
+### 1. A library the SDK links non-weakly and the old OS does not have
+
+The case that produced this section: the iOS 27 SDK added a Swift *overlay* for
+XPC. Naming `XPC_TYPE_DICTIONARY`, `XPC_ARRAY_APPEND` or
+`XPC_ERROR_CONNECTION_INVALID` in Swift — spellings that had been in the code
+for a year — stopped resolving to the libSystem globals they are in C and
+started resolving to accessors exported by `/usr/lib/swift/libswiftXPC.dylib`.
+That dylib first shipped in iOS 16. `libswiftXPC.tbd` carries no
+back-deployment metadata and the constants are annotated `@available(iOS 8.0)`,
+so ld emitted a **required** load command. On iOS 15, dyld kills the process
+before `main`:
+
+```
+"reasons" : ["Library not loaded: /usr/lib/swift/libswiftXPC.dylib", …]
+```
+
+Two users, two devices, one clean build. The rule:
+
+```sh
+otool -L <binary> | grep -v ', weak)'   # every entry must exist on the floor
+```
+
+Anything in that list that arrived after the floor is a launch failure, not a
+runtime one. The fix is to stop referencing the new symbols, not to add a
+linker flag: with no symbol from a dylib in use, ld weak-links it by itself and
+dyld tolerates its absence. For SDK constants that exist in C, read them through
+C — a header-only `[system]` module with `static inline` accessors, imported by
+the one module every target links (see `../Fila`'s `Packages/FilaKit/Sources/CFilaXPC`
+and `FilaXPC` in `FilaProtocol`, and the same shim in `../Inspector`,
+`../iGhostVT` and Irisin). `import XPC` itself is harmless; only the symbols
+matter. Keep the shim even at a floor of 16: one path on every OS.
+
+**Use one path on every OS.** Do not branch on availability to keep the "new"
+spelling for new systems: then the code that runs on the old floor is the code
+nobody ever runs. With a single C path, testing on iOS 26 tests exactly what
+iOS 15 will execute.
+
+### 2. Symbols newer than the floor, weak-linked and null
+
+```sh
+nm -m <binary> | grep 'weak external'
+```
+
+Every entry is NULL on an OS that predates it. A Swift or C call through one is
+a crash at first use; each must be guarded in source. Objective-C *methods* have
+no symbol at all — they are an unrecognized selector — so guard those with
+`if #available(iOS N, *)` and never silence `-Wunguarded-availability-new`.
+
+### 3. An embedded framework with a higher floor than the app
+
+```sh
+vtool -show-build <framework>/<name> | grep minos
+```
+
+An `.xcframework` built by someone else carries its own `minos`. Higher than
+your floor means dyld refuses it on the old device, with the same launch
+failure and a different library name.
+
+### 4. A Swift runtime symbol newer than the floor, imported non-weakly
+
+The library is on the old device; the symbol is not, and dyld refuses the
+process at launch (crash report, `termination.namespace` `DYLD`):
+
+```
+"Symbol not found: _swift_initBorrow"
+"Expected in: /usr/lib/swift/libswiftCore.dylib"
+```
+
+Nothing in the build says so. The compiler can reference a runtime entry
+point newer than the deployment target from code that never names it — Swift
+6.4 does it with `_swift_initBorrow` (iOS 27) — so a dependency bump or a new
+Xcode can raise the floor on its own. A bump of anything that follows the
+standard library closely is tested by launching the packaged Release build on
+a device below the newest iOS, not by building it. What a binary imports from
+the Swift runtime:
+
+```sh
+nm -m <binary> | grep '(undefined) external' | grep '(from libswift'
+```
+
+`audit-ios-floor.sh` fails on every symbol in its `late_runtime_symbols` list
+(add a line with the symbol and the iOS that first exports it), and, where an
+iOS simulator runtime at or above the floor is installed with its Swift
+libraries as files (18.x is; 26 and later keep them only in the shared cache),
+on every such import that runtime's `libswiftCore` and other non-overlay
+libraries do not export. The Swift ABI only adds, so what that runtime lacks,
+the floor lacks. Overlays (`libswiftUIKit`, `libswiftDarwin`, …) re-export
+their frameworks and are left to the first check.
+
+### 5. Asset and resource identifiers with an OS version attached
+
+The one that never crashes and is therefore the one that ships: **SF Symbols**.
+`UIImage(systemName: "text.word.spacing")` returns nil on iOS 15 — the symbol is
+from 2022 — and the button simply draws with no icon. Xcode's completion offers
+this year's symbols with no regard for the deployment target. The availability
+table ships on every Mac:
+
+```
+/System/Library/CoreServices/CoreGlyphs.bundle/Contents/Resources/name_availability.plist
+```
+
+`symbols` maps a name to a release year, `year_to_release` maps that year to an
+iOS version. Check every `systemName:` / `systemImage:` literal against it in
+`make check`.
+
+## Layout
+
+The four reference repos share this shape. Keep it; an agent that knows one
+then knows all of them.
+
+```
+<App>/               the app: main.swift (manual UIApplicationMain), Application/,
+                     Interface/<feature>/, Resources/
+<app>d/              the daemon, product `<app>d`: main.swift, Server/, System/
+<app>-install/       optional helper (Irisin shape), product `<app>-install`
+Packages/<App>Kit/   a local Swift package: the wire protocol, the privileged
+                     file/system layer, the client link, and everything else
+                     that must be testable on a Mac with plain `swift test`
+Configuration/       Version.xcconfig, Base.xcconfig, Development/Release
+Packaging/           DEBIAN/{control,postinst,prerm} and optional postrm,
+                     entitlements, launchd plist, Info.plist supplement
+Shared/              XPC constant shim (template); Fila keeps it inside the package
+Scripts/             copied from the sibling: package-deb.sh, verify-deb.sh,
+                     sign-frameworks.sh, install-device.sh, vphone.sh,
+                     run-xcodebuild.sh, collect-licenses.py. package-ipa.sh
+                     is Fila only.
+Licenses/            reviewed discipline only: one folder per binary component
+                     (notice + notice.json), review.json, Compatibility.md
+Documents/           Architecture.md, Roadmap.md, Site/ (Pages source)
+manifest.json        the owngoal-packages entry
+```
+
+Fila and Irisin spell the prose folder `Documentation/`. iGhostVT and
+Inspector use `Documents/`. The template uses `Documents/Site/`. The
+repo's Pages source is **GitHub Actions** deploying that folder, not the
+legacy `main:/docs` setting.
+
+The package is the reason the destructive code is testable: the jobs that copy
+and delete, and the guard that refuses, live there and are exercised by
+`swift test` on the Mac without a device, a simulator or the daemon. Anything
+UIKit-only stays behind `canImport(UIKit)` so the package still builds on macOS.
+
+There is deliberately **no CLI target** in Fila and a deliberate one in iGhostVT
+and Inspector: a CLI is a second client of the same daemon. A CLI that
+must run below iOS 15 embeds `libswift_Concurrency.dylib` next to itself
+(Inspector: `usr/lib/inspector/`); the daemon stays free of
+`async`/`await`.
+
+## Build & verify
+
+The Makefile targets, in the order you will need them:
+
+| target | what it does |
+| --- | --- |
+| `make harness` | `swift test --package-path Packages/<App>Kit`. No device. Run first: this is where a guard mistake or a copy that loses an xattr is caught. |
+| `make check` | project and packaging validation: xcconfig ownership, `objectVersion`, plist lint, entitlement shape, the app's GPU list (`check-gpu-entitlements.py`), the launchd plist's paths (`check-launchd-paths.py`), the UI-library greps, the deployment-floor greps, the Collect Licenses phase. |
+| `make build` | unsigned app + daemon for iPhoneOS (runs `check` and `harness` first). |
+| `make sim` | Debug onto the booted simulator. There is **no LaunchDaemon** there and there cannot be — `launchd_sim` prefixes every job's program path with the sealed runtime root — so the simulator exercises the unprivileged backend and everything visual. Irisin is the exception: it runs the installer in-process against a directory of its own. Do not fake a daemon in the app to "fix" the simulator. |
+| `make deb` / `make deb-all` | package for `FLAVOR` (roothide default, `iphoneos-arm64e`, rootful paths; `FLAVOR=rootless` packages the same binaries under `/var/jb` as `iphoneos-arm64`), ad-hoc sign with ldid, then verify the archive. |
+| `make tipa` / `make ipa` | Fila only: the app alone, with and without jailbreak entitlements. iGhostVT, Inspector and Irisin do not ship these targets — do not invent them after copying those Makefiles. |
+| `make install` | build for `FLAVOR` and update an existing installation over `iproxy`. First installation still goes through the device's package installer. Confirm the payload *and* the launch: a locked iPad can accept an installation while refusing to open the app. |
+| `make vphone` | incremental Debug build, then serve one `.deb` over HTTP to the VM. No SSH, no VM restart. |
+| `make bump-build` | Fila-style: `CURRENT_PROJECT_VERSION += 1` in `Configuration/Version.xcconfig`. Not used by Irisin (see contract). |
+
+Give every parallel worker its own `DERIVED_DATA=/private/tmp/<name>` (or
+`~/Library/Caches/<name>`): the default path is shared, concurrent builds
+cross-contaminate, and you get false greens and false reds. Spell it
+`/private/tmp`, never `/tmp`: Xcode passes the path as written while
+FileManager resolves it through the symlink, and a package manifest that strips
+its own checkout path to compute header search paths (LNPopupController does)
+then strips nothing and its private headers go unfound. The live Makefiles
+already default to `/private/tmp/<app>-deriveddata`.
+
+`run-xcodebuild.sh` must print the failed build commands and the raw tail of
+the log when xcodebuild fails, not only the `error:` lines: a compiler killed
+by the system, or a crashed `swift-frontend`, reports no `error:` line at all,
+and the raw log is gone once the script exits.
+
+## Where things get tested
+
+1. **The Mac harness** for everything the package can reach. Always, first.
+2. **The simulator** for the shell and the visuals, through the unprivileged
+   backend (or Irisin's in-process installer).
+3. **A vphone or a jailbroken device** for the privileged half: the XPC hop, the
+   authenticator, entitlements, launchd, both bootstrap layouts, a descriptor
+   opened as root. Nothing else proves those.
+4. **The oldest OS you claim** — or, when you have no such device, the four
+   static audits above. Say which one you did; "it builds" is not a claim about
+   iOS 15.
+
+Report what actually ran.
+
+## A crash is read before anything is changed
+
+A crash is diagnosed from the symbolicated report, not from a guess. A wrong
+one ("missing entitlement") cost a rebuild; the symbolicated stack named the line in one command.
+
+Keep the dSYM of every build installed on a device, until that build is gone
+from it: `$DERIVED_DATA/Build/Products/Release-iphoneos/<App>.app.dSYM` (and
+the daemon's beside it). A `make clean` or the next build overwrites it, so
+copy it out if the build stays on the device. A published build's are in the
+release (see *Publishing*). Match by the report's image UUID, then symbolicate
+the frame's image offset:
+
+```sh
+dwarfdump --uuid <App>.app.dSYM          # must equal the report's image uuid
+atos -o <App>.app.dSYM/Contents/Resources/DWARF/<App> -l 0x100000000 \
+    <0x100000000 + imageOffset>
+```
+
+A UUID that does not match is another build's dSYM and symbolicates to
+confident nonsense. Only then change something.
+
+## Localization is verified against the compiler, never against a grep
+
+A key missing from `Localizable.xcstrings` is not a build failure and never
+warns — it renders the English key on a Chinese device. A release build emits
+one `.stringsdata` per source file under `Build/Intermediates.noindex/…`; each
+is a JSON whose `tables.Localizable` lists the exact keys the runtime will look
+up. Diff that set against the catalogue and require `missing = 0` and
+`orphaned = 0`.
+
+Two ways the live apps keep the catalogue honest. Pick the one the sibling
+you copied already uses; do not mix them.
+
+- **Fila:** per-target catalogues, `bundle: .module`, no `extractionState` in
+  any Localizable catalogue, `String.LocalizationValue("…")` at a package API
+  (AlertController), compiler `.stringsdata` diff in `make check`. A prune
+  script that writes `extractionState: manual` would fail Fila's checker.
+- **Irisin / Inspector:** keys Xcode cannot see (a `LocalizationValue`
+  handed to another module; Inspector's iOS 13 `String(localized:)` shim) stay
+  `"extractionState": "manual"`. `scripts/prune-xcstrings.py <catalog>
+  <source roots…>` turns a stale key still quoted in a source file into
+  `manual`. Run it by hand with Xcode closed, never from `make check`, because
+  it writes.
+
+Either way, `scripts/check-stale-strings.py <roots…>` belongs in `make check`.
+It refuses `extractionState: stale` and says nothing about `manual`, so it
+suits both disciplines. Nothing else catches the marker: it appears during an
+ordinary build, lands in the tree of whoever built last, and rides into a
+commit as one green line in a diff of several thousand. That is how the one in
+iGhostVT got in.
+
+**Stale does not mean dead, and a prune must not assume it does.** The
+extractor reports on the target it just built. An app with an iOS target, a
+visionOS target and a macOS target has every macOS-only string marked stale
+after an iOS build, and all of them are live. So is a key reached through
+interpolation, one named in a xib, and one a package builds from a constant.
+So `prune-xcstrings.py` never deletes by default: a stale key found in none of
+the roots becomes `manual` and is printed as an orphan *candidate* for a person
+to read. `--delete-orphans` is the opt-in, and it is only for a single-target
+app whose roots are known to be complete. Pass **every** target's sources —
+a missing root makes its strings look orphaned, and one flag then takes them
+and all thirteen translations out in a single commit.
+
+Blind spots in both: a grep for `String(localized:)` cannot see SwiftUI's bare
+`Text("Grid")`, and cannot see an interpolated key — `"\(count) selected"` is
+looked up as `%lld selected`. Xcode's extractor only walks the **app target**
+unless each package has its own catalogue. An open project rewrites and
+reorders the file during every build — re-read the diff.
+
+A translation keeps every format specifier with the same type and count, and
+uses positional forms (`%1$@`, `%2$lld`) wherever the language reorders them.
+Keep blunt warnings blunt in every language.
+
+## Licenses are collected by the build, never written by hand
+
+MIT, BSD and Apache all make the same demand of a binary distribution: the
+notice travels with it. A deb is a binary distribution. An app with SwiftPM
+dependencies and no Licenses screen is out of compliance the day it ships, and
+a hand-kept list is out of date the day a pin moves. Three of the four
+siblings ship this; Inspector links nothing third-party and has none.
+A new app gets it **in the scaffold, before the first dependency is added** —
+not as a release chore.
+
+The pieces, all copied, none rewritten:
+
+- **`Scripts/collect-licenses.py`** (chmod +x) writes one `Licenses.json`: a
+  JSON array of `{name, version?, license, url, text}`. It collects the
+  repository's own `LICENSE` (versioned from `Version.xcconfig`, named from
+  `manifest.json`), every pin in `Package.resolved` — the checkout under
+  DerivedData's `SourcePackages/checkouts` *and* its binary artifacts under
+  `SourcePackages/artifacts`, walked for LICENSE / COPYING / NOTICE files and
+  `Licenses/` folders, nested ones included (that is how TreeSitter's notice
+  inside `Runestone.xcframework` gets in) — and whatever the repo vendors.
+  It **fails the build** on a pin with no checkout, a checkout with neither a
+  license file nor a copyright header, and GPL-family text anywhere in the
+  set. iGhostVT once shipped Ghostty's GPLv3 shell integration in a deb by
+  accident; this is the check that keeps it out.
+- **The "Collect Licenses" build phase** on the app target, last, hand-written
+  into `project.pbxproj`: `alwaysOutOfDate = 1`, `outputPaths` =
+  `$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Licenses.json`,
+  and `exec "$SRCROOT/Scripts/collect-licenses.py" --project "$SRCROOT"
+  --build-dir "$BUILD_DIR" --output <that path>`. The script finds
+  `SourcePackages` by walking up from `BUILD_DIR`, so it works for a build and
+  an archive alike. It reads outside `SRCROOT`: either set
+  `ENABLE_USER_SCRIPT_SANDBOXING = NO` on the app target (Fila, Irisin) or
+  declare every file it reads as `inputPaths` (iGhostVT — and then a new
+  vendored folder that is not declared never re-runs the phase). The file
+  goes into the **app bundle only**, never the daemon.
+- **The screen.** Settings ▸ About ▸ Licenses: a row per notice (name,
+  `license · version`), the whole text selectable a push away, read from
+  `Bundle.main`'s `Licenses.json`. UIKit: Fila's
+  `Interface/Settings/LicensesViewController.swift` or Irisin's
+  `LicenseController.swift` (the same screen). SwiftUI: iGhostVT's
+  `LicensesView.swift`. Copy, rename, localize the title; about 140 lines.
+- **The gates.** `make check`: the collector is executable and
+  `project.pbxproj` names `collect-licenses.py` (otherwise the screen is
+  silently empty). `verify-deb.sh` / the packagers: the payload contains
+  `<App>.app/Licenses.json`. Both are a few lines in the sibling's Makefile
+  and scripts; keep them when trimming.
+
+Two disciplines, as with the string catalogue. Pick by what the app links:
+
+- **Scanned (Irisin).** Everything comes from the checkouts; the license label
+  is a keyword heuristic with `Other` as the fallback and the text shipped
+  whole. Right when every dependency is a SwiftPM pin that carries its own
+  notice. Two constants to edit after copying: `APP_SOURCES` (the app's own
+  targets, scanned for a Swift file whose header comment names a license —
+  code copied in from elsewhere ships that header) and `NOT_SHIPPED` (pins no
+  shipped target links, e.g. an argument parser that serves only a CLI).
+- **Reviewed (Fila, iGhostVT).** A `Licenses/` folder at the repo root, one
+  directory per component that ships as a *binary with no license file*
+  (Ghostty inside libghostty-spm, the tree-sitter grammars inside Runestone,
+  BoringSSL, smbclient): the full notice plus `notice.json` (source URL,
+  content hash, version). `review.json` records the reviewed hash and display
+  label of every notice and the reviewed XCFramework revisions; a changed
+  text, a new component or a binary upgrade fails collection until a person
+  re-reads it, and `Compatibility.md` says why each licence is compatible.
+  Right as soon as one prebuilt binary hides its components.
+
+**Vendored source keeps its notice beside it.** Code copied into a local
+package lives under `Sources/<Target>/Vendor/<Name>/` with the upstream
+`LICENSE` in that folder and the upstream header left on each file; the
+collector walks `Packages/` for nested license files and names the entry after
+the folder (Xrash's `local_entries`). Vendoring is a licence decision before it
+is a code decision: MIT / BSD / Apache-2.0 / ISC / zlib are fine, LGPL and GPL
+are not — LGPL's relinking condition cannot be met by a statically linked,
+ad-hoc signed iOS binary. Check the licence *before* evaluating the library,
+and record the refusal where the dependency decision is written down.
+
+Verify it rather than trust it: after a build, `python3 -m json.tool
+<App>.app/Licenses.json | grep '"name"'` and compare against
+`Package.resolved` plus the vendored folders. A missing transitive pin
+(swift-crypto behind a wrapper, swift-asn1 behind that) is the usual surprise
+— the collector reads `Package.resolved`, so they are all there; a reader
+expecting only the direct dependencies should not "fix" the longer list.
+
+## Publishing
+
+1. `make check`, `make harness`, `make deb-all`, and (Fila only) `make tipa`
+   / `make ipa`.
+2. A read-through for sensitive information (above). Nothing goes out until it
+   comes back clean.
+3. Commit, push, tag `vX.Y.Z`. Local `make deb` exists to prove the build and
+   to `make install` on a device; nothing published comes out of it.
+
+   **CI builds, Release publishes what CI built.** Two workflows, copied as a
+   pair from Irisin, which is the reference shape:
+
+   - `.github/workflows/ci.yml` (`name: CI`) on push to the main branch, on
+     pull requests and on dispatch. One job runs the host tests; beside it,
+     one job per product compiles, packages and verifies, writes
+     `SHA256SUMS` over everything it built, and uploads `build/Packages/` as
+     the artifact `<app>-${{ github.sha }}` with `if-no-files-found: error`
+     and `retention-days: 30`. Nothing is published from here.
+   - `.github/workflows/release.yml` (`name: Release`) on tag
+     `v[0-9]*.[0-9]*.[0-9]*`. **It compiles nothing.** It finds ci.yml's run
+     for the tagged commit — polling, because the tag and the branch usually
+     arrive together and the run may not exist yet — `gh run watch`es it,
+     refuses to publish unless the conclusion is `success`, downloads that
+     artifact, `sha256sum --check`s it, rewrites `SHA256SUMS` for exactly the
+     files the release carries, and publishes.
+
+   What ships is then the file CI verified, not a second build of the same
+   commit: a rebuild at tag time is a different `CURRENT_PROJECT_VERSION`,
+   a different runner image and a different set of bytes from the ones any
+   test ran against. A commit that never reached the main branch has no run,
+   so dispatch CI on the tag (`gh workflow run ci.yml --ref vX.Y.Z`) and
+   re-run Release; that is also the way back once the artifact is past its
+   thirty days.
+
+   **The concurrency keys are not decoration.** CI keys a push on
+   `github.sha` and a pull request on `github.ref`, cancelling only the
+   latter: a push's run must survive however soon the next push follows,
+   because a tag on that commit publishes what that run built. Release keys
+   on `github.ref` with `cancel-in-progress: false`.
+
+   **The workflow must be named `Release`**, because `pages.yml` watches
+   `workflow_run: workflows: [Release]` and refreshes the depiction's
+   changelog after it succeeds. A repo that publishes from `ci.yml` has its
+   Pages refresh fire before the release exists.
+
+   **Publishing is idempotent and never assumes the release is new:**
+
+   ```sh
+   if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+       gh release upload "$GITHUB_REF_NAME" --clobber "${files[@]}"
+       gh release edit "$GITHUB_REF_NAME" --notes-file "$notes"
+   else
+       gh release create "$GITHUB_REF_NAME" --verify-tag \
+           --title "<App> $version" --notes-file "$notes" "${files[@]}"
+   fi
+   ```
+
+   Title the release `<App> <version>`, not the bare tag. `--verify-tag`
+   refuses to create a release for a tag that is not pushed yet.
+
+   **The workflow publishes the dSYMs too**, in the run's artifact and on the
+   GitHub release, listed in `SHA256SUMS`. A crash report from a shipped
+   build is addresses without them, and the runner's DerivedData is gone
+   when the job ends. Release is already `dwarf-with-dsym`, so they sit
+   beside the products; after packaging:
+
+   ```sh
+   cd "$DERIVED_DATA/Build/Products/Release-iphoneos"
+   zip -qry "$GITHUB_WORKSPACE/build/Packages/<App>_${version}_dSYMs.zip" *.dSYM
+   ```
+
+   One zip **per build**, not per package: both flavours wrap one build, and
+   neither `strip -xS` nor ldid touches `LC_UUID` (check with
+   `dwarfdump --uuid` on the dSYM and on the binary inside the `.deb`). A
+   second build is a second zip — Fila's sandboxed composition
+   (`$DERIVED_DATA-sandboxed`), each of iGhostVT's platform jobs (`-xros`
+   products; the Mac zip takes `Release-maccatalyst` and `Release`). Name
+   it so no existing glob catches it: a merge job that counts `*.zip` or
+   a checksum step over `*.deb` needs the dSYM zip added by name. The APT
+   fetcher picks `.deb` assets by architecture and ignores the rest.
+4. **The release notes are a file in the repo, written before the tag.**
+   `<docs>/Releases/<version>.md` — `Documentation/Releases/` in Irisin and
+   Fila, `Documents/Releases/` in the repos whose prose folder is
+   `Documents/`. The publish step copies it when it exists and falls back to
+   a short generated blurb when it does not, so a release never goes out
+   bare; the fallback is the exception, not the plan.
+
+   The shape, which every app follows:
+
+   ```markdown
+   Irisin 4.3.7 starts on RootHide devices that 4.3.6 turned away.
+
+   - On some RootHide devices Irisin stopped at launch with Unsupported
+     Architecture, saying the package was built for `iphoneos-arm64e` while
+     the firmware used `iphoneos-arm64`, although the right package was
+     installed. Irisin now recognises RootHide from where it is installed
+     and no longer depends on a link the system may not have made.
+
+   Choose `iphoneos-arm64e` for RootHide or `iphoneos-arm64` for rootless
+   firmware. SHA-256 checksums are included in `SHA256SUMS`.
+   ```
+
+   - **One headline sentence**: `<App> <version>` and what this release does,
+     naming its two or three real changes. Not "bug fixes and improvements".
+   - **One bullet per user-visible change**, in the user's words and present
+     tense. A fix leads with the symptom the user saw, then what changed —
+     they recognise the symptom, not the cause. A release with nothing
+     user-visible says so plainly: *"Runestone 0.3.2 … Nothing in the app
+     changed."*
+   - **A closing line**: which package to choose, any platform caveat that is
+     genuinely load-bearing (Xrash's `xattr -dr com.apple.quarantine` for the
+     ad-hoc-signed Mac app), and `SHA256SUMS`.
+   - **Never** a commit sha, an internal type name, a `refactor:`/`chore:`
+     subject, or a bare compare link. `--generate-notes` produces exactly the
+     last of those and is not a release note: it tells a user who already
+     reads the repository what they could have read anyway, and everyone else
+     nothing. A package table with an install command documents *installing*,
+     never *what changed*; keep it to the closing line and spend the body on
+     the changes.
+
+5. Enable Pages as **GitHub Actions** (not the legacy `/docs` folder). The
+   workflow deploys `Documents/Site/` (`index.html`, `icon.png`, and
+   `depiction.json` at Site root). Prepare the native depiction as described
+   below. Before the first stable release, the updater leaves the Details-only
+   page intact. Point `manifest.json`'s icon at
+   `https://owngoal-dev.github.io/<repo>/icon.png`. The APT verify is
+   CDN-delayed (`max-age` 600 s).
+6. Add the repo to `owngoal-packages`' `manifest.json` (`repository` +
+   `architectures`) *after* the release exists — the APT build fails on a
+   manifest entry with no release — and watch its run go green.
+
+## Swift 6 and the main actor
+
+Irisin is the first of the apps on `SWIFT_VERSION = 6.0` for every target
+with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` on the app; Fila, iGhostVT
+and Inspector are still Swift 5 mode. What held up under it, and what
+did not:
+
+- **State lives on the main actor; work that takes time runs on a copy.** The
+  engines hold their state on the main actor, so a read or a commit is a
+  dictionary operation and nothing is locked. Parsing, resolving, hashing and
+  writing take a value snapshot into a `nonisolated static` or `@concurrent`
+  function and commit the result back. Every engine notification is posted on
+  the main actor, so a UI observer is a plain `@objc func`. The migration
+  removed every `NSLock` and serial queue; none of them was replaced by an
+  actor. Do not add one; add a snapshot.
+- A singleton is `nonisolated static let shared` with a `private nonisolated
+  init()`; a property wrapper cannot be applied to a stored property of a
+  nonisolated type, so it becomes `let store = Wrapper(...)` plus a computed
+  property. A nested `Hashable` type used from the background is a
+  `nonisolated struct`.
+- **Xcode 26.6's `swift-frontend` crashes** (EarlyPerfInliner, in the
+  optimizer of a Release build) on the *implicit* deinit of a generic subclass
+  of an Objective-C generic class — `final class X<S, I>:
+  UITableViewDiffableDataSource<S, I>` — under main-actor default isolation.
+  Debug builds and the simulator are fine, so it shows up on CI. Spell the
+  deinit out as `nonisolated deinit {}` and it compiles. Observed on the
+  macos-26 runner with Xcode 26.6.
+- A package at iOS 15 stays Swift 5 mode (tools 5.9) and is annotated
+  `@MainActor` where the app needs it; IrisinKit follows the app at iOS 16 /
+  Swift 6.
+
+## Gotchas observed across the apps
+
+- **A Swift wrapper module and a C framework that differ only by case.** The
+  libarchive xcframework's module is `libarchive`; the upstream Swift package
+  wraps it in a module named `LibArchive`. Xcode's module cache on a
+  case-insensitive volume cannot tell them apart and the build fails with
+  `cannot load module 'LibArchive' as 'libarchive'` — on CI, after a clean
+  local build, because the local cache happened to be warm. Two fixes, both
+  shipping: Fila aliases the wrapper (`moduleAliases: ["LibArchive":
+  "FilaLibArchive"]`); Irisin drops the wrapper and links the artifact as
+  its own `.binaryTarget(name: "libarchive", url:, checksum:)`, adding `z`,
+  `bz2`, `iconv` and `xml2` to `linkerSettings` itself. The alias renames the
+  *built* module only: source keeps `import LibArchive`, and
+  `import <App>LibArchive` is a compile error.
+- **A package's floor is in its source, not only in its manifest.** A
+  library that uses `Int128` / `UInt128` needs iOS 18 whatever `platforms:`
+  says, and lowering the manifest in a fork does not compile. Build a
+  candidate for `generic/platform=iOS` at your floor before designing around
+  it — next to reading its licence, and before reading its API.
+- **iPadOS 18 reserves the top of the screen for a hidden tab bar.** A
+  `UITabBarController` whose tab bar is hidden — because the app draws its own
+  — still lays out for the iPad top tab bar and leaves a blank band under the
+  status bar. A root that does not want a tab bar is a plain
+  `UIViewController` with child containment, not a `UITabBarController` with
+  the bar hidden. Seen on an iPad on iPadOS 18, absent on iOS 15 and 16.
+  Whether the root wants one is the owner's rule, not taste: **more than
+  three top-level pages get a real tab bar**, one navigation controller per
+  tab; three or fewer get a single stack with a bar button that pushes
+  Settings.
+- **Nothing the developer needed to see stays on screen.** A backend state
+  dumped into a navigation prompt is the first thing the owner sees. Status
+  is a localized word in Settings (*Connecting…*, *Connected*, *Limited*);
+  raw enum descriptions, install roots and file names with their extensions
+  belong in the log. A list row is a picture (the app's icon, or a `terminal`
+  glyph for a bare executable), a name a person would say, and a subtitle
+  that carries information.
+- **Every app carries the GPU list, whether or not it draws with Metal.**
+  The bootstrap withholds the GPU from an ad-hoc binary until
+  `com.apple.security.iokit-user-client-class` names the classes, and
+  system frameworks reach for it inside the app's process: IconServices
+  composites an app icon through Core Image, Bold Text and the share sheet
+  style glyphs through it. Inspector 0.6.2 shipped without the list and
+  crashed at launch on an A12 iPhone, iOS 18 RootHide (Inspector #15): a
+  null call in `CI::GLContext::GLContext` under
+  `+[UIImage _applicationIconImageForBundleIdentifier:format:scale:]`.
+  Irisin died the same way with Bold Text on, and Saily in the share sheet
+  (Irisin #65). An app's own Metal view fails without a crash instead: the
+  kernel logs `deny(1) iokit-open-user-client AGXDeviceUserClient`, and the
+  view is a rectangle that never reports a viewport while the daemon and
+  everything behind it work. `template/Packaging/APP.entitlements` ships
+  Irisin's list (AGX, IOAccel, IOGPU, IOSurface, framebuffer, JPEG, HID, the
+  neural engine, and vphone's paravirtual names) under both spellings of
+  the key, `iokit-user-client-class` and
+  `exception.iokit-user-client-class`; the kernel's denial names the first,
+  Irisin's Bold Text fix was the second. `scripts/check-gpu-entitlements.py
+  Packaging/<App>.entitlements` is the gate: `make check` runs it, every
+  package target runs `check`, so a list that loses a class fails CI before
+  anything is packaged. When a crash report names a new class, add it to the
+  script's `REQUIRED` here first, copy the script into all five apps, and
+  add the class to each app's entitlements. It belongs on the app only: a
+  daemon or a CLI draws nothing.
+- **RootHide renames the bootstrap root at every jailbreak, and rewrites the
+  launchd plists to match.** Its `launchctl` patches each file in
+  `Library/LaunchDaemons` in place (`plistpatch.m`): a plist without
+  `__Patched` gets the root put in front of `ProgramArguments[0]` and the
+  other path keys; one with the mark has the old root taken off first. A
+  package that ships the rootful path (`@PREFIX@` empty) and loads it with
+  the bootstrap's `launchctl` — every app here but Irisin — survives the
+  rename and has nothing to do. A plist loaded by anything else (Irisin's
+  helper, through IcliKit, which launchd hands kernel paths) must be
+  written as `launchctl` would have left it: the kernel path *and*
+  `__Patched = true`. The path alone comes out as new root + old root after
+  the next jailbreak, launchd answers `78: EX_CONFIG` once, the job sits at
+  `spawn scheduled`, and an app that never falls back says *Connecting…*
+  for good (Irisin through 4.3.5). `launchctl print system/<label>` shows
+  the doubled `program`.
+- **Connected is not the first byte.** After `launchctl reboot userspace` the
+  first zsh can take ~30 s to print (cold caches, AMFI/trustcache, load
+  300–500). A UI that hides *Connecting…* at `openSession` looks identical to
+  a broken surface. Show a "Starting…" state until the first byte (a replay
+  counts).
+- **`await dismiss` does not wait** on the iOS 27 SDK
+  (`NS_SWIFT_DISABLE_ASYNC` on `dismissViewControllerAnimated:completion:`).
+  Presenting the next sheet hits the one still leaving. Wrap dismiss in a
+  continuation (Irisin `dismissFinishing(animated:)`).
+- **`#available` does not hide a reference.** A symbol that exists only in a
+  newer SDK still has to typecheck on CI's Xcode. Talk to it through KVC
+  under the runtime check, or it will not compile on last year's Xcode.
+- **Saved scene state outlives the code that wrote it.** After a SwiftUI app
+  becomes a UIKit app (or the scene `delegateClass` changes), a cold launch
+  still restores the old session and never calls the new delegate. Clearing
+  the archive in `main` — not in `didFinishLaunching` — is the fix; UIKit has
+  already read the archive by then.
+
+## When a merge goes wrong
+
+Splitting work across agents is fine; the risk is at the merge, not in the
+branch. In one night of ten merged branches, every bug that reached `main` came
+from the resolution:
+
+- **Two correct fixes for the same bug make one crash.** Two patches for "a job
+  whose link dropped hangs forever" merged into a `CheckedContinuation` resumed
+  twice. Any callback that resumes a continuation must be taken off its row
+  before anything else runs.
+- **Identifiers collide silently.** Two agents took the same wire operation
+  number; three took the same pbxproj object IDs. Git merges that without
+  complaint. After any multi-branch merge, verify raw values are unique and
+  every `productRef` points at the product its comment names.
+- **A file nobody owns gets edited by nobody.** Excluding the string catalogue
+  from every worker to avoid conflicts left a hundred keys missing. Whatever is
+  excluded from everyone needs an owner at the end.
+
+## Template
+
+`template/` holds only the parts that are the same in every app repo and that
+you cannot get by reading a sibling: the one-time checklist (`CHECKLIST.md`),
+the packaging inputs, the xcconfigs, the
+XPC constant shim, the roothide root check (`Shared/RoothideRoot.swift`),
+the app's update watch and its quiet exit
+(`App/QuietExit.swift`), the scene-restoration reset
+(`App/main.swift`, `App/SceneRestorationReset.swift`), the Pages workflow and
+Site stub, and an `AGENTS.md` skeleton. It also holds a skeleton that builds
+as it is: `APP.xcodeproj`, a hand-written two-target project (app and daemon,
+file-system-synchronized groups, `objectVersion` 77, no version or deployment
+target in it), an app delegate and first screen, an on-demand daemon
+(`Daemon/`) that authenticates its peer the way the contract says and answers
+`hello` with the install root it derived from its own path, the client that
+says hello with a bound and a grace period (`App/DaemonClient.swift`), the
+wire (`Shared/Protocol/AppProtocol.swift`), an empty string catalogue and a
+placeholder icon. The first build of a new repo therefore tests packaging,
+not boilerplate: built from Inspector's packager and installed on a roothide
+device, the skeleton launched, the daemon answered with the
+`.jbroot-…` root and idle-exited, and an upgrade over the running copy raised
+the update watch's prompt (2026-10-05). **The build scripts are not here on
+purpose** — `package-deb.sh`, `verify-deb.sh`, the ipa pair,
+`sign-frameworks.sh`, `install-device.sh`, `vphone.sh`, `collect-licenses.py`
+(and the Licenses screen) and the `Makefile` move with the live repos, and a fork of them here would be stale within a month.
+Copy those from the sibling whose daemon shape you picked, then rename.
+`scripts/new-app.py` does the mechanical part of that in one run. It stays in
+this repository and writes nothing of itself into the new one, so there is
+no bootstrap script to delete afterwards:
+
+```sh
+<this skill>/scripts/new-app.py <repo> --name <App> --from <Fila|Inspector|iGhostVT|Irisin> \
+    [--floor 15.0] [--description …] [--package-description …] \
+    [--banner-url …] [--depiction-description …] [--siblings <dir>]
+```
+
+It finds each sibling at `<siblings>/<name>` or `<siblings>/../<owner>/<name>`
+(Irisin lives at github.com/Lakr233/Irisin, not owngoal-dev/Irisin; the
+default `<siblings>` is the folder this skill is checked out in) and copies
+from its committed `HEAD`. Uncommitted work in a sibling stays there. The repo
+is assembled in a temporary folder and moved into place only when every step
+passed. The destination must be absent or empty. In order, it:
+
+- copies `template/` and fills each placeholder it was given; the ids follow
+  from `--name` (see Placeholders below), JSON goes through an encoder, and
+  only the token is replaced, never what is around it;
+- sets `IPHONEOS_DEPLOYMENT_TARGET` to `--floor`;
+- renames the entitlements and the launchd plist, renames
+  `HELPER.entitlements` to `<app>-install.entitlements` for helper-per-job
+  and deletes it otherwise;
+- enables the shape's optional plist keys and deletes the rest: on-demand
+  (Fila, Inspector) enables none, session host (iGhostVT) enables
+  `RunAtLoad`, `KeepAlive`, `Interactive` and 10240 files, helper-per-job
+  (Irisin) enables `AbandonProcessGroup`;
+- moves `App/` into `<App>/` and `<App>/Application/`, `Daemon/` into
+  `<App>d/`, and `APP.xcodeproj` to `<App>.xcodeproj`;
+- copies `Scripts/`, `Makefile` and `.gitignore` from the sibling;
+- copies the CI/Release pair, `ci.yml` and `release.yml`, from Irisin, which
+  is the reference shape: ci.yml builds and keeps the artifact, and
+  release.yml publishes the artifact ci.yml already verified and compiles
+  nothing (see "Publishing");
+- copies this skill's gates (`audit-ios-floor.sh`,
+  `check-symbol-availability.py`, `check-checklist.sh`,
+  `check-gpu-entitlements.py`, `check-launchd-paths.py`,
+  `check-accessibility.py`, `check-stale-strings.py`) over the sibling's
+  copies; they travel unchanged and are never renamed;
+- swaps the sibling's name in exact, lower and upper case through what it
+  copied, and also through the workflows: Irisin's name, its `main-4.0`
+  branch and its `Documentation/Releases` notes path;
+- wires the checklist gate (below) into the Makefile and adds `.build/` and
+  `.swiftpm/` to `.gitignore`.
+
+Then it runs the scaffold checks and prints what is still open:
+
+- placeholders it was not given;
+- any sibling-name spelling it did not rename. It reports these and does
+  not guess at them;
+- a copied gate that the Makefile never names;
+- hook and plist problems;
+- actionlint findings.
+
+The script ticks nothing in `CHECKLIST.md`.
+
+A rename is not a rewrite. What the script cannot decide, and you still do:
+
+- Read the rename in context. The copied Makefile, packager and workflows
+  still describe the sibling's products: its binaries, its entitlement
+  loops, its extra jobs.
+- Add a workflow job per extra product the app ships, each with its own
+  DerivedData and its own `SHA256SUMS.<product>` that the publish step
+  concatenates. Fila's sandboxed composition, iGhostVT's visionOS deb and
+  Mac zip, and Xrash's Mac zip are examples. Remove only product-only jobs.
+  Keep macos-26, the Xcode selection, signing, verification and every
+  required asset. Keep the workflow name `Release`: pages.yml watches
+  `workflows: [Release]`.
+- Licenses: Inspector has no collector, so its `Scripts/` brings none. Take
+  Irisin's (scanned) or Fila's (reviewed) collector, the matching screen,
+  the build phase, and the make check / verify-deb gates. See "Licenses".
+- UI and string gates: Inspector's `Scripts/` brings neither. An app on
+  SnapKit / AlertController takes Fila's `check-ui-libraries.sh` and
+  `check-localization.sh`, cut down to its own roots, and wires both into
+  `make check` on day one. Run them once straight away: copied code that
+  still presents a UIAlertController fails the first of them.
+- Wire every copied gate the report says is unwired, for example
+  `make check: Scripts/check-gpu-entitlements.py Packaging/<App>.entitlements`
+  and `Scripts/check-launchd-paths.py "Packaging/<daemon bundle id>.plist"
+  --substituted-by Scripts/package-deb.sh`.
+- Delete `<App>/Application/ExecutableWatch.swift` only for a self-updating
+  installer, where the helper owns the replace.
+- Add any target beyond the app and the daemon to the project by hand, then
+  work through `CHECKLIST.md` before writing any code.
+
+The two sweeps the report summarises, to rerun as you go:
+
+```sh
+grep -rn '@[A-Z_]*@' --exclude-dir=.git .         # every hit is a decision
+# The sibling's name, swept over the whole repo — not just Makefile/Scripts.
+# Must print nothing before the first build (AGENTS.md may credit the sibling).
+grep -rniE 'fila|ighostvt|inspector|irisin|chromatic|saily' \
+    --exclude-dir=.git --exclude=AGENTS.md .
+```
+
+**The checklist gate goes into the copied Makefile before anything else.**
+`make check` must run `Scripts/check-checklist.sh` first, and every target
+that builds (`build`, `compile`, `deb`, `install`) already depends on `check`
+in the siblings. `harness`, `sim` and `vphone` do not everywhere (Fila's
+`build` runs `harness` before `check`), so they get the prerequisite too.
+`new-app.py` adds these lines *above* the `check:` rule, so the gate is its
+first prerequisite, and adds `checklist` to `.PHONY`; by hand, do the same:
+
+```make
+checklist:
+	@Scripts/check-checklist.sh CHECKLIST.md
+
+check harness sim vphone: checklist
+```
+
+Drop from that last line any target the copied Makefile does not have (the
+script keeps only those it finds). Then
+work through `CHECKLIST.md`, top to bottom, ticking each box only after the
+thing is done or decided. `CHECKLIST.md` stays in the repo, ticked, and the
+gate stays in `check`: the file is the record of what was decided.
+
+**The rename is finished when that sweep is empty, not when the build is
+green.** A leftover sibling name builds and packages without complaint. Where
+they were found while scaffolding Xrash from Inspector, all outside
+anything a compiler reads: `DERIVED_DATA ?= /private/tmp/inspector-deriveddata`
+(two apps then share one derived-data folder and cross-contaminate — the
+false-green case from *Build & verify*), `mktemp` prefixes in every script,
+the `<sibling>-harness` temp names, the workflow `concurrency.group`,
+`$RUNNER_TEMP/<sibling>-…`, the artifact name, the release-notes title, the
+package id handed to `verify-deb.sh` in the workflow, and the `usage:` /
+header comments of copied scripts. Rewrite the Makefile and the packager in one
+pass rather than patching lines as they fail: a copied packager also carries
+the sibling's *shape* (Inspector's takes a CLI binary, its entitlements
+and a back-deployed `libswift_Concurrency.dylib` for an iOS 13 floor), and
+argument counts, payload lists and entitlement loops all have to change
+together.
+
+Copy the sibling's `.gitignore` too, then make sure it ignores `.build/` and
+`.swiftpm/`: Inspector has no local package, so its file does not, and the
+first `git add -A` after `make harness` stages the whole SwiftPM build folder.
+Read `git status --short` before the first commit; the scaffold is about fifty
+files, not hundreds.
+
+Placeholders: `@APP_NAME@`, `@REPO@`, `@BUNDLE_ID@` (`wiki.qaq.<app>`),
+`@DAEMON@` (`<app>d`), `@DAEMON_ID@` (`wiki.qaq.<app>d`), `@SERVICE_NAME@`
+(`wiki.qaq.<app>.service`), `@APP_CLIENT_ENTITLEMENT@`
+(`wiki.qaq.<app>.client`), `@PACKAGE_ID@`, `@MINIMUM_IOS_VERSION@`,
+`@ONE_LINE_DESCRIPTION@`, `@PACKAGE_DESCRIPTION@`, `@BANNER_URL@`, and
+`@DEPICTION_DESCRIPTION@`. `@PREFIX@`, `@VERSION@`, `@ARCHITECTURE@`, `@FLAVOR@`
+and `@INSTALLED_SIZE@` are substituted by the packager at package time — leave
+those alone. So is `@ROOTFS@` where a launchd plist uses one; Xrash's
+`package-deb.sh` is the packager that fills it.
+
+**Replace the token and nothing around it.** Match `@DAEMON_ID@`, never
+`/@DAEMON_ID@ ` with its neighbours: a replacement that drops the trailing
+space turns `bootout system/<id> 2>/dev/null` into
+`bootout system/<id>2>/dev/null`. That is still valid sh — `sh -n` passes, the
+hook exits 0 — but launchctl is handed the label `<id>2`, the old daemon keeps
+the Mach service across an upgrade, and stderr is no longer silenced. Observed
+while scaffolding Xrash with a replace-all whose pattern ended in a space. The
+hooks now assign `label=@DAEMON_ID@` once, alone on its line, and quote
+`"system/$label"` everywhere else; keep that shape in copied hooks. After any
+rename, prove it rather than read it:
+
+```sh
+grep -nE '[A-Za-z0-9_@]2>' Packaging/DEBIAN/*     # must print nothing
+grep -c '<daemon id>' Packaging/DEBIAN/{postinst,prerm,postrm}   # 1 each
+```
+
+`template/Packaging/DAEMON.plist` is on-demand. Each optional key is a
+one-line XML comment of the form `<!-- <key>…</key><true/> -->` — delete only
+those markers, not the prose at the top of the file. Enable
+`AbandonProcessGroup` for a helper-per-job daemon; enable `KeepAlive` /
+`RunAtLoad` for a session host (and set `ProcessType` to Interactive).
+`postinst` already boots out three launchd domains. Every sibling's packager
+stages `postinst`, `prerm` and `postrm`; an older copy that loops over the
+first two needs `postrm` added. Hooks that call `killall` (a session host
+kills its app and its orphaned children) add `shell-cmds` to `Depends`.
+Keep `uikittools` in `Depends` for automatic
+app registration and removal through its triggers. The lifecycle hooks manage
+the daemon only; remove any explicit `uicache` calls from copied scripts too.
+Default `APP.entitlements` has an App Group; delete it unless an extension
+shares a container, and only if the packager substitutes `$(APP_GROUP_IDENTIFIER)`.
+
+`scripts/audit-ios-floor.sh <floor> <paths…>` and
+`scripts/check-symbol-availability.py <floor> <source roots…>` are the two
+release gates from the floor section; wire both into `make check` (the symbol
+one) and the release path (the floor one, over the built `.app`, the daemon and
+every helper). `scripts/check-checklist.sh [<file>]` is the checklist gate
+above: POSIX sh, exit 0 with one line when every item is `- [x]`, 65 listing
+each `- [ ]` (or on a file with no items), 66 when the file is missing.
+`scripts/prune-xcstrings.py` is the Irisin/Inspector catalogue
+tidy; Fila's checker is in Fila's `Scripts/` — copy the one that matches.
+
+### Native Depiction
+
+Drop `icon.png` into `Documents/Site/` before the first Pages deploy. Keep the
+control file's `Depiction` and `SileoDepiction` URLs pointing at the site root
+and `/depiction.json`, respectively.
+
+Set `@BANNER_URL@` to the full HTTPS URL of the largest banner image referenced
+by the app's README. Compare the actual image dimensions; do not choose the
+app icon or a thumbnail. A tracked image can use its GitHub raw URL on `main`.
+Write `@PACKAGE_DESCRIPTION@` as one short paragraph and
+`@DEPICTION_DESCRIPTION@` as Markdown describing supported features and
+compatibility. Retain installation and device caveats from the README; never
+invent generic features. Replace JSON string values through a JSON encoder so
+quotes and multiline Markdown remain valid. Do not substitute packager-only
+`@VERSION@` into the static depiction.
+
+The template has only a Details tab. Pages runs the shared
+`owngoal-packages/scripts/update-depiction-changelogs.py` at a pinned commit with
+`--repository OWNER/REPO --depiction Documents/Site/depiction.json`. It adds the
+Changelog tab from published GitHub release titles, dates, and Markdown notes.
+Do not copy that implementation into the new app. Pages fetches releases on
+site changes, manual runs, release publication or edits, and successful
+`Release` workflow completion. Release events dispatch a Pages run on `main`
+so tag-triggered runs do not conflict with Pages environment branch restrictions.
+The completion trigger also handles releases created with `GITHUB_TOKEN`,
+whose release events do not start another workflow.
+
+The copied release workflow must publish the release only after its build and
+package checks pass, and it must not serialize work that shares nothing. Shape
+it as **test ‖ compile → release**: `test` runs `make harness`; `compile`
+builds, verifies and uploads the packages with the harness skipped
+(`SKIP_HARNESS=1`; the Makefile's `build` target drops that prerequisite only
+when it is set, so a local build is still gated); `release` has
+`needs: [test, compile]`, runs on tags only, downloads the artifact, checks
+`SHA256SUMS` and publishes — no checkout, no Xcode, an Ubuntu runner. A
+failure in either parallel job skips `release` and fails the run. Fila and
+Xrash are the references. Retain its macOS runner, signing steps, and product-specific
+verification. If its name differs, change it to `Release` or update the Pages
+`workflow_run.workflows` entry to the same name. Enable Pages with GitHub Actions,
+publish the first stable release, and verify the deployed JSON and banner URLs.
+
+Validate a scaffold with `python3 -m unittest discover -s tests -v` in this
+skill repository. In the generated app, run `actionlint` on both workflows,
+parse `Documents/Site/depiction.json`, run `sh -n` on every maintainer hook,
+and check that no unresolved scaffold placeholders remain. Packager placeholders
+in packaging inputs are intentional until the packages are built.
+
+## Output
+
+A report that says: what was built, which daemon shape and which sibling the
+scripts came from, which of the four floor audits ran and what they said, which
+surfaces were actually tested (harness / simulator / vphone / device / oldest
+OS), how many notices `Licenses.json` carries and which discipline collects
+them, the deb names and digests for both flavours, the tipa and ipa, the release
+URL and the owngoal-packages commit.

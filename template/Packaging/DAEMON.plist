@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	Rename this file to the daemon bundle id, and cut this comment down to
+	what describes your daemon: it ships in the package. The install prefix in
+	ProgramArguments is substituted at package time (the token is not spelled
+	here, where the packager would substitute it too): empty for roothide,
+	whose launchctl re-prefixes the rootful path at every load, and /var/jb
+	for rootless. Never write a resolved bootstrap path into this file.
+
+	Default is on-demand: launchd starts the daemon when the app looks the Mach
+	service up, and it exits when the last client is gone.
+
+	To enable a commented key, delete only the comment markers around that
+	key/true pair — not the prose at the top. A text node inside <dict> fails
+	plutil -lint.
+
+	Helper-per-job: enable AbandonProcessGroup so postinst bootout does not
+	kill the in-flight helper.
+
+	Session host (live PTYs / replay that must outlive the app): enable
+	RunAtLoad and KeepAlive, set ProcessType to Interactive, and add
+	SoftResourceLimits NumberOfFiles 10240. Demand-launch races the next Mach
+	connection.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>@DAEMON_ID@</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>@PREFIX@/usr/libexec/@DAEMON@</string>
+	</array>
+	<key>UserName</key>
+	<string>root</string>
+	<!-- Background is conservative. On-demand daemons often use Adaptive. -->
+	<key>ProcessType</key>
+	<string>Background</string>
+	<!-- 0022: files the daemon creates are not group- or world-writable. -->
+	<key>Umask</key>
+	<integer>18</integer>
+	<key>MachServices</key>
+	<dict>
+		<key>@SERVICE_NAME@</key>
+		<true/>
+	</dict>
+	<!-- <key>AbandonProcessGroup</key><true/> -->
+	<!-- <key>RunAtLoad</key><true/> -->
+	<!-- <key>KeepAlive</key><true/> -->
+	<!-- Nothing may inject into the process that does privileged work. -->
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>DISABLE_TWEAKS</key>
+		<string>1</string>
+	</dict>
+</dict>
+</plist>

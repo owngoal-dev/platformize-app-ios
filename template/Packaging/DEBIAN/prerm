@@ -1,0 +1,26 @@
+#!/bin/sh
+# Scripts/package-deb.sh substitutes the install prefix below: empty for
+# roothide, /var/jb for rootless.
+
+find_tool() {
+    for candidate in "@PREFIX@/usr/bin/$1" "/usr/bin/$1" "/bin/$1"; do
+        if [ -x "$candidate" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Named once, alone on its line: see postinst for why the id never sits next
+# to a redirect.
+label=@DAEMON_ID@
+if [ "${1:-}" = remove ] || [ "${1:-}" = deconfigure ]; then
+    if launchctl="$(find_tool launchctl)"; then
+        "$launchctl" bootout "system/$label" 2>/dev/null || true
+        "$launchctl" bootout "user/501/$label" 2>/dev/null || true
+        "$launchctl" bootout "gui/501/$label" 2>/dev/null || true
+    fi
+fi
+
+exit 0
