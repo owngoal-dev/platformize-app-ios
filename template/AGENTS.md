@@ -62,6 +62,18 @@ helper-per-job: the daemon starts one helper for one closed job.>
   reads as a crash. Quit, and any other exit the app chooses, is
   `QuietExit.run`: leave for the home screen, wait for the animation, run the
   cleanup `exit` would skip, then exit.
+- **The app's data folder is `~/Documents/@BUNDLE_ID@`, and the package
+  makes it.** The app has no container, so its home is mobile's —
+  `<jbroot>/var/mobile` on roothide, `/var/mobile` on rootless — shared with
+  every other app without one. Anything it keeps there goes in a folder named
+  for its bundle id, the isolation a container would give, inside a
+  `Documents` mobile owns, which a container would have had too. The postinst
+  (dpkg, as root) makes each missing level — home, `Documents`, the folder —
+  and hands it to mobile on its own, leaves a level that exists alone, and
+  never follows a symlink. Never `mkdir -p` as root: it leaves every level
+  above the last one root's, and Irisin 4.3.4–4.5.25 left a roothide
+  bootstrap's `Documents` root's that way, so no other app without a
+  container could make anything there.
 - **A cold launch starts with no saved scenes.** `main.swift` deletes this
   bundle's `Library/Saved Application State/<id>.savedState` before
   `UIApplicationMain`. UIKit reads that archive before any scene delegate

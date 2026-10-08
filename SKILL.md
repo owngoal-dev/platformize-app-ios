@@ -318,6 +318,22 @@ self-updating installer into the daemon.
   `scripts/check-launchd-paths.py` is the gate.
   `postinst` boots out **system, user/501 and gui/501** before bootstrap:
   roothide's launchctl can land a system daemon in the per-user domain.
+- **The app's data lives in `~/Documents/<bundle id>`, made by the
+  postinst.** A jailbreak app has no container: its home is mobile's
+  (`<jbroot>/var/mobile` on roothide, where roothide's sh reads `/var/mobile`
+  too; `/var/mobile` on rootless), shared with every other app without one.
+  What a sandbox gives an app — a `Documents` of its own — is rebuilt from
+  two parts: a `Documents` mobile owns, and inside it a folder named for the
+  bundle id, so two such apps never write into each other's data. The
+  template's postinst makes each missing level (home, `Documents`, the
+  folder) and hands it to mobile on its own, leaves a level that exists
+  alone, and refuses a symlink, since mobile owns the home and could plant
+  one to have root hand it another directory. Never `mkdir -p` as root in a
+  hook: every level above the last stays root's. Irisin 4.3.4–4.5.25 did, and
+  on a roothide bootstrap with no `Documents` it left `Documents` root's, so
+  iGhostVT could make nothing there and wrote no log (2026-10-09). The vphone
+  never showed it: vphoned installs Irisin without dpkg, so no postinst ran.
+  The app keeps its files under that folder, never loose in `Documents`.
 - **Every shipped app carries the notices of everything it links, generated
   by the build.** A **Collect Licenses** build phase writes `Licenses.json`
   into the bundle, Settings shows it, `make check` requires the phase and the

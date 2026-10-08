@@ -64,6 +64,7 @@ platformize-app-ios's; the quoted name is its section.
 - [ ] `com.apple.security.iokit-user-client-class` is present if the app draws with Metal itself, absent if not.
       `Packaging/<App>.entitlements`.
 - [ ] `control` depends on `firmware (>= <floor>)`, `uikittools` and `launchctl`; no hook calls `uicache`; `postinst` boots out system, user/501 and gui/501.
+- [ ] `postinst` makes `/var/mobile/Documents/<bundle id>` level by level for mobile (no `mkdir -p` as root, no symlink followed), and the app keeps its files in that folder, never loose in `Documents`.
       `Packaging/DEBIAN/`; SKILL.md "The contract".
 - [ ] Versions and the deployment target live in `Configuration/*.xcconfig` only, `objectVersion` is pinned, `make check` rejects both, and one build-number style is chosen.
       SKILL.md "The contract".
