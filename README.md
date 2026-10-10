@@ -18,7 +18,8 @@ For command-line tools, see [platformize-bin-ios](https://github.com/owngoal-dev
   gate for `make check`, deployment compatibility
   and SF Symbol checks, an accessibility gate that refuses a label UIKit will
   never read, a gate that refuses a string key Xcode marked stale, a gate
-  that refuses app entitlements missing the GPU list, plus
+  that refuses app entitlements missing the GPU list, a renderer that turns
+  an Icon Composer icon into a three-JPEG icon set (megabytes smaller), plus
   localization cleanup that keeps a translation it cannot account for.
 
 ## Get Started

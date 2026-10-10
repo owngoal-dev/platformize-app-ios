@@ -86,6 +86,15 @@ helper-per-job: the daemon starts one helper for one closed job.>
   In-app uses draw the `AppIconMark` image set. Another app's icon comes
   from IconServices, then from its `CFBundleIconFiles` names read as files
   with `UIImage(contentsOfFile:)`, never `UIImage(named:in:)`.
+- **The app icon is three JPEGs in `AppIcon.appiconset`.** An Icon Composer
+  `.icon` compiles to six 1024×1024 lossless renders (any, dark, tinted, for
+  phone and again for pad) — megabytes no build setting removes. The `.icon`
+  is the source, in `Documents/Icon/` and in no target; the skill's
+  `scripts/render-app-icon.py` writes the icon set from it, and runs again
+  after every edit. Test a changed icon on a device with the package removed
+  first: installing over it can leave IconServices drawing the cached icon.
+  Opaque image sets may be JPEG too; transparent ones stay PNG. Never reduce
+  colours to save space.
 - **A control with no text has no name.** Every icon-only button, bar button
   item and invisible button over a row gets an `accessibilityLabel` when it
   is written, not in a pass afterwards. The trait already says "button".

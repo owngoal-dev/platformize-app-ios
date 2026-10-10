@@ -99,6 +99,8 @@ platformize-app-ios's; the quoted name is its section.
       SKILL.md "The contract": the app icon is never looked up by name.
 - [ ] Another app's icon is asked of IconServices first; the fallback reads `CFBundleIconFiles` names as files with `UIImage(contentsOfFile:)`, never `UIImage(named:in:)`. Ticked as not applicable if the app shows none.
       SKILL.md "The contract", same bullet.
+- [ ] The app icon is `AppIcon.appiconset` with three JPEGs written by `scripts/render-app-icon.py`, no `.icon` is in any target (the source lives in `Documents/Icon/`), and `xcrun assetutil --info` on the built `Assets.car` shows every `AppIcon` rendition as JPEG. A changed icon was checked on a device after removing the package, not over it.
+      SKILL.md "The contract": the app icon ships as three JPEGs in a plain icon set.
 - [ ] `Documents/Site/icon.png` exists and the depiction's banner is the largest image the README references.
       SKILL.md "Native Depiction".
 

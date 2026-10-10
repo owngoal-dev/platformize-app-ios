@@ -292,6 +292,30 @@ self-updating installer into the daemon.
   the loose-file fallback reads the `CFBundleIconFiles` names as PNG files in
   the bundle directory with `UIImage(contentsOfFile:)`, never
   `UIImage(named:in:)` with a name out of someone else's `Info.plist`.
+- **The app icon ships as three JPEGs in a plain icon set, never as an
+  `.icon`.** actool compiles an Icon Composer icon into three 1024×1024
+  lossless renders (any, dark, tinted), stored once for the phone idiom and
+  again for the pad: iGhostVT's `Assets.car` was 5,103,512 bytes, 4.3 MB of
+  it those six (`xcrun assetutil --info`, Xcode 27). No setting drops them —
+  `ASSETCATALOG_COMPILER_STANDALONE_ICON_BEHAVIOR`, `--optimization space`,
+  the deployment target, SVG layers and one target device were each tried —
+  and Apple closed FB20957000 as working as designed; App Store thinning
+  keeps one idiom, a deb or a sideloaded .ipa ships both. So the `.icon`
+  stays in `Documents/Icon/` as the source, in no target, and
+  `scripts/render-app-icon.py` turns it into `AppIcon.appiconset`: actool's
+  own three renders, read back out of the catalogue and encoded as JPEG
+  (quality 92, 4:4:4, PSNR 48–50 dB), which actool then stores untouched.
+  iGhostVT's catalogue went to 442,040 bytes and its roothide deb from
+  8,658,286 to 5,958,130. On iOS 26.6 the home screen glazes the flat images
+  and draws them like the layered icon in Default, Dark, Clear and Tinted
+  (screenshot against screenshot); what goes is the live glass. Mac Catalyst
+  derives its `.icns` from the same image, margins unchanged. Check a new
+  icon on a device with the package *removed* first, then installed: an
+  install over the old one can leave IconServices drawing its cached icon,
+  and the comparison then proves nothing. An opaque image set (an alert
+  card's icon) goes to JPEG the same way; one with transparency stays PNG.
+  Never reduce colours instead: 64 colours bands, and the catalogue's own
+  `lossy` compression is RGB555.
 - **No absolute build path in a shipped binary.** `#file` is concise
   (`SWIFT_UPCOMING_FEATURE_CONCISE_MAGIC_FILE`); `-file-prefix-map` /
   `-ffile-prefix-map` are in `template/Configuration/Base.xcconfig`. A
@@ -1193,6 +1217,10 @@ above: POSIX sh, exit 0 with one line when every item is `- [x]`, 65 listing
 each `- [ ]` (or on a file with no items), 66 when the file is missing.
 `scripts/prune-xcstrings.py` is the Irisin/Inspector catalogue
 tidy; Fila's checker is in Fila's `Scripts/` — copy the one that matches.
+`scripts/render-app-icon.py <AppIcon.icon> <AppIcon.appiconset>` writes the
+icon set from the contract above; run it again after every edit to the `.icon`
+and commit what it writes. It needs Xcode, and ImageMagick for 4:4:4 (without
+`magick` it falls back to `sips`: 4:2:0, and about half as large again).
 
 ### Native Depiction
 
