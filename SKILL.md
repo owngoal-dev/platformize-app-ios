@@ -281,6 +281,19 @@ self-updating installer into the daemon.
   open them on every platform.
   Both template entitlement files ship the pair; delete it from a process
   that has no business there.
+- **iCloud Drive is a vault of its own, and the template does not open it.**
+  An app that browses or writes `~/Library/Mobile Documents` or
+  `~/Library/CloudStorage` carries the five iCloud storage classes —
+  `CloudDocsDB`, `CloudKit`, `MobileDocuments`, `ciconia`, `iCloudDrive` —
+  on every process that touches those folders, the app *and* the daemon.
+  Fila carries all five on both; Irisin added them to its app in `94f7e70`.
+  They are not in the template because most apps never look there. The same
+  Irisin commit also added `com.apple.security.exception.files.*` path
+  exceptions (`/` read-write, and the two folders above); beside
+  `no-sandbox` those are sandbox exceptions with no sandbox to except from,
+  and Fila does not carry them. Copy them only if a device shows the folder
+  still refused without them, and write that measurement down where you
+  add them.
 - **The app icon is never looked up by name.** An icon made in Icon Composer
   (`AppIcon.icon`) compiles to a catalogue where the name `AppIcon` is an
   image stack with no bitmap, and on iOS 26 `UIImage(named: "AppIcon")`

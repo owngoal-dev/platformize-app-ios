@@ -27,6 +27,13 @@
 	if either one looks there; drop both from an app that has no business
 	there.
 
+	iCloud Drive (`~/Library/Mobile Documents`, `~/Library/CloudStorage`) is
+	a separate vault and is deliberately not opened here. An app that goes
+	there adds the storage classes `CloudDocsDB`, `CloudKit`,
+	`MobileDocuments`, `ciconia` and `iCloudDrive`, on the app and the daemon
+	both; SKILL.md says why the `exception.files.*` path keys are not part of
+	that set.
+
 	`com.apple.security.iokit-user-client-class` names the GPU and what sits
 	beside it. Every app carries it, whether or not it draws with Metal
 	itself: a bootstrap withholds these IOKit classes from an ad-hoc signed
